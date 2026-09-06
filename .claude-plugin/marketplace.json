@@ -1,0 +1,21 @@
+{
+  "name": "claude-dev-pipeline",
+  "metadata": {
+    "description": "PRD → test cases → TDD implementation → Playwright E2E specs, with approval gates between stages. Framework-agnostic; project facts live in one config file."
+  },
+  "owner": {
+    "name": "gyofeel"
+  },
+  "plugins": [
+    {
+      "name": "dev-pipeline",
+      "description": "Take a feature from scattered requirements to verified code: PRD interview, code-grounded test cases, evidence-backed TDD, and self-validating Playwright specs, pausing for human approval between stages.",
+      "author": {
+        "name": "gyofeel"
+      },
+      "source": "./",
+      "category": "productivity",
+      "homepage": "https://github.com/gyofeel/claude-dev-pipeline"
+    }
+  ]
+}

@@ -1,0 +1,84 @@
+{
+  "$schema": "dev-pipeline/1",
+  "_comment": "Origin project of this plugin: a remote-control-driven TV web app (Nuxt + Pinia). Shows every optional feature switched on: state bridge, keyboard interaction with an adapter, soft-track patterns, approval gates, platform interface.",
+
+  "worksDir": ".agents/works",
+  "issueKeyPattern": "[A-Z]+-\\d+",
+  "branchPrefix": "feat/",
+  "packageManager": "pnpm",
+  "constraintsFile": ".agents/tdd-constraints.md",
+
+  "commands": {
+    "setup": "pnpm postinstall",
+    "unitTest": "pnpm test:unit:run",
+    "unitTestList": "npx vitest list --filesOnly --json --project unit",
+    "format": "npx prettier --write",
+    "lint": "npx eslint --fix",
+    "dev": "NUXT_BUILD_DIR=.nuxt-e2e pnpm dev --port 5555",
+    "e2eRun": "npx playwright test"
+  },
+
+  "unitTest": {
+    "runner": "vitest",
+    "runnerArgs": ["--project", "unit", "--coverage.enabled=false"],
+    "testFileGlobs": ["app/**/*.test.js", "server/**/*.test.js", "shared/**/*.test.js"],
+    "excludedFilePatterns": ["*shared.test.js"],
+    "testNaming": "<name>.test.js (components: <name>.ui.test.js / <name>.click.test.js)",
+    "knownFailuresFile": "scripts/tdd/known-failures.json",
+    "excludedAreas": [
+      "focus movement and remote-control key navigation",
+      "GSAP / Three.js / HLS rendering and animation",
+      "set-top-box native bridge callbacks (never answered on a developer machine)",
+      "page transitions and session restore (history POP/RECOVER round trips)"
+    ],
+    "useWorktree": false
+  },
+
+  "ui": {
+    "framework": "vue",
+    "pagesDir": "app/pages",
+    "componentsDir": "app/components",
+    "stateStoreDir": "app/store",
+    "registrationFiles": ["app/composables/index.js", "app/store/index.js"],
+    "routeRule": { "strip": "app/pages/ui5vcs/[version]", "prefix": "/ui5vcs/latest", "indexFile": "index" },
+    "stateBridge": {
+      "globalExpr": "window.$pinia",
+      "focusExpr": "window.$pinia?.focus?.focusId"
+    },
+    "selectorPriority": ["testid", "class", "id", "text"],
+    "testIdAttribute": "data-testid"
+  },
+
+  "e2e": {
+    "specsDir": "playwright/ui-tests/scenarios",
+    "fixturesDir": "playwright/fixtures",
+    "specFilePrefix": "btc-",
+    "kitDir": "playwright/kit",
+    "adapterModule": "playwright/e2e.adapter.js",
+    "resultsJson": "playwright/ui-tests/reports/results.json",
+    "baseUrl": "http://localhost:5555",
+    "healthUrlPath": "/favicon.ico",
+    "interaction": "keyboard",
+    "readyExpr": "document.getElementById('page')?.style.opacity === '1'",
+    "renderSelectorDefault": null,
+    "envErrorPatterns": [
+      "ECONNREFUSED", "EADDRINUSE", "EACCES", "Executable doesn't exist",
+      "Process from config.webServer", "Timed out waiting", "Another Nuxt dev", "dev.lock"
+    ],
+    "writableDirs": [".nuxt-e2e", "node_modules/.cache", "playwright/ui-tests/reports"],
+    "networkNoiseWhitelist": ["sona-stg.skt-jive.com"],
+    "consoleAllowedMethods": ["log", "info", "error", "clear", "time", "timeLog", "timeEnd"],
+    "softTrack": {
+      "guardExpr": "window.$pinia?.appConfig?.runDevice === true",
+      "patterns": ["playStatus", "getPlaySecuInfo", "getSTBCamera", "webHideNoti", "ANIMATION_APP_HIDE", "/idle"]
+    },
+    "screenCatalog": null,
+    "ai": { "provider": "openai", "model": "gpt-5-mini", "apiKeyEnv": "OPENAI_API_KEY" }
+  },
+
+  "approvalGates": [
+    { "name": "new scoped style block", "check": "git diff $BASE..HEAD -- '*.vue' | grep -n '<style' || true" }
+  ],
+
+  "platformInterface": { "enabled": true, "label": "Native (set-top box) bridge" }
+}
