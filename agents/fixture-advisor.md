@@ -48,6 +48,14 @@ Match `endpoints[]` and `screen` keywords against the inventory. For each recomm
 - `real` — populated lists/objects with plausible values
 - `skeleton` — top-level arrays empty, or values such as `test`, `9999`, `lorem`, `sample 1`
 
+### Boot-critical fixtures
+
+An app that is isolated from the network (`mockAll` with `isolate: true` stubs every unmatched data request with `{}`) only boots if the requests its shell needs at start-up are answered with real shapes. Detect them from existing specs: any `mockAll` route that appears in **most** specs (or lives in a shared fixtures subfolder such as `_common/`) is boot-critical. Always list those first under `[recommended]` with the reason `boot-critical (used by N specs)`, regardless of the screen. Missing them shows up later as a `waitForAppReady` timeout, which is expensive to diagnose.
+
+### Glob shape
+
+Copy the URL pattern exactly as existing specs write it. Requests usually carry a query string, so a pattern must end with `*` (`**/api/gnb/list*`), otherwise it never matches and the isolation stub answers instead. When you derive a new pattern from an endpoint, append `*`.
+
 ## Step 4 — Gaps
 
 Endpoints with no fixture → suggest a kebab-case name from the path (`/api/user/profile` → `user-profile.json`).

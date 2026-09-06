@@ -21,7 +21,7 @@ Read the file. Extract:
 | **E2E suitability** | `manual` → skip, listed as "skipped (manual review)" |
 | **Screen** | `screen` |
 | **Start URL** | `startUrl` |
-| **Fixtures** | `fixtures` route map — file names resolved under `e2e.fixturesDir`; `(none — live API)` → `{}` |
+| **Fixtures** | `fixtures` route map — file names resolved under `e2e.fixturesDir`; patterns copied verbatim (query-string endpoints need a trailing `*`); `(none — live API)` → `{}` and `liveData: true` |
 | **AI verdict** | `PASS only` → `['PASS']`, `WARNING allowed` → `['PASS','WARNING']` |
 | **Console error whitelist** | `(none)` → `[]`, else split on commas |
 

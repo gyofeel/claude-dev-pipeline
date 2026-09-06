@@ -46,12 +46,16 @@ export default {
 
     async waitForAppReady(page, opts = {}) {
         await defaultAdapter.waitForAppReady(page, opts);
-        // The app ignores direction keys until its initial screen sequence finishes and key handling is unblocked.
-        await page.waitForFunction(
-            () => window.$pinia?.common?.initialStartScreen === false && window.$pinia?.common?.blockGlobalKeyHandler === false,
-            null,
-            { timeout: opts.timeout ?? 15000 }
-        );
+        // The app drops key presses while its global key gate is closed. `initialStartScreen` is only set on
+        // the home screen (null elsewhere), so treat null as "not blocking". Both waits are soft: screens
+        // without these flags must not time out here — a wrong assumption surfaces in the test body instead.
+        await page
+            .waitForFunction(
+                () => !window.$pinia?.common?.initialStartScreen && window.$pinia?.common?.blockGlobalKeyHandler === false,
+                null,
+                { timeout: opts.timeout ?? 15000 }
+            )
+            .catch(() => {});
     },
 
     async press(page, key, { delay = 0 } = {}) {

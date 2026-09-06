@@ -178,7 +178,15 @@ const buildSteps = (verifications, cfg) => {
             }
             if (v.type === 'Runtime') {
                 return `        await test.step(${title}, async () => {
-            const runtime = await collector.collect();
+            const raw = await collector.collect();
+            // apply the same whitelists afterEach uses, so in-body checks and the verdict agree
+            const runtime = {
+                ...raw,
+                consoleErrors: (raw.consoleErrors ?? []).filter(
+                    (e) => !CONSOLE_ERROR_WHITELIST.some((p) => e.text?.includes(p)) && !NETWORK_ERROR_WHITELIST.some((p) => e.url?.includes(p))
+                ),
+                networkErrors: (raw.networkErrors ?? []).filter((e) => !NETWORK_ERROR_WHITELIST.some((p) => e.url?.includes(p)))
+            };
             const ok = ${runtimeCheck(v.condition)};
             expect(ok).toBe(true);
             SUCCESS_CRITERIA[${i}].passed = ok;

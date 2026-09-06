@@ -43,7 +43,7 @@ Each TC ends with a `---` line.
 
 ### `#### Preconditions`
 
-Bullets. API mocks as `**API mock**: <url pattern> → <fixture file>` (one per line). Also login state, data prerequisites. If nothing: `- none`.
+Bullets. API mocks as `**API mock**: <url pattern> → <fixture file>` (one per line). Patterns are Playwright globs and must end with `*` when the request carries a query string (`**/api/gnb/list*`) — copy the shape existing specs use. Include the boot-critical fixtures `fixture-advisor` lists even when the TC does not exercise them; an isolated run cannot boot without them. Also login state, data prerequisites. If nothing: `- none`.
 
 ### `#### Entry path`
 
