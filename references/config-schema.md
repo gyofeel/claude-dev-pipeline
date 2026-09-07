@@ -119,7 +119,7 @@ Keys marked **required** must be present. Everything else has the default shown.
 - `commands.*` strings are executed with `bash -c` from the repo root. A skill appends arguments (a spec path, a test file) after a space.
 - `ui.framework: "auto"` is resolved from `package.json` dependencies (vue/nuxt → vue, react/next → react, svelte → svelte, @angular → angular, else other). The resolved value is a one-line hint for agents, nothing more.
 - `ui.stateBridge.globalExpr` is the only way the pipeline reads app state. Agents write state paths as `<store>.<field>`; the spec compiles them to `<globalExpr>?.<store>?.<field>`. The runtime probe (`scripts/state-probe.mjs`) evaluates each path once against the running app and rejects paths that resolve to `undefined`.
-- `e2e.interaction: "keyboard"` without `adapter.findAndEnter` is a config error reported by `--check`.
+- `e2e.interaction: "keyboard"` requires `adapter.findAndEnter`. `--check` only warns while the adapter file does not exist yet (init runs before e2e-init), and errors once the file exists without an uncommented `findAndEnter` — so `e2e-test` stops until the project implements it.
 
 ## Minimal valid config
 

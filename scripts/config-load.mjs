@@ -181,10 +181,15 @@ function validate(cfg, root, errors, warnings) {
         errors.push(`e2e.screenCatalog file not found: ${cfg.e2e.screenCatalog}`);
     if (cfg.e2e?.interaction === 'keyboard') {
         const adapter = path.resolve(root, cfg.e2e.adapterModule);
-        // ponytail: identifier grep, not a module import (keeps the loader sync and dependency-free)
-        const src = existsSync(adapter) ? readFileSync(adapter, 'utf8') : '';
-        if (!/\bfindAndEnter\b/.test(src))
-            errors.push(`e2e.interaction is "keyboard" but ${cfg.e2e.adapterModule} does not define findAndEnter`);
+        if (!existsSync(adapter)) {
+            // Bootstrap order is init → e2e-init; the adapter does not exist yet at init time.
+            warnings.push(`e2e.interaction is "keyboard": ${cfg.e2e.adapterModule} must define findAndEnter — run /dev-pipeline:e2e-init, then implement it (see examples/adapters/)`);
+        } else {
+            // ponytail: identifier grep on comment-stripped source, not a module import (loader stays sync and dependency-free)
+            const src = readFileSync(adapter, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+            if (!/\bfindAndEnter\b/.test(src))
+                errors.push(`e2e.interaction is "keyboard" but ${cfg.e2e.adapterModule} does not define findAndEnter (the template's commented example does not count)`);
+        }
     }
     if (cfg.e2e?.consoleAllowedMethods !== null && !Array.isArray(cfg.e2e.consoleAllowedMethods))
         errors.push('e2e.consoleAllowedMethods must be null or string[]');
