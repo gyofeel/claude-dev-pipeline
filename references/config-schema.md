@@ -34,7 +34,9 @@ Keys marked **required** must be present. Everything else has the default shown.
     "unitTestList": null,               // optional — lists collected test files (baseline count)
     "format": null,                     // e.g. "npx prettier --write"; applied to files before commit
     "lint": null,                       // e.g. "npx eslint --fix"; best-effort
-    "dev": null,                        // dev server command; used by playwright.config webServer template
+    "dev": null,                        // dev server command; used by playwright.config webServer template.
+                                        // Pin it to a non-production backend (env vars in the command). Playwright's
+                                        // reuseExistingServer will happily reuse a server someone started against production.
     "e2eRun": "npx playwright test"     // required by e2e-test — runs one spec path appended
   },
 

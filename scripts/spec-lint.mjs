@@ -23,7 +23,11 @@ async function loadConfigCompat({ cwd, configPath }) {
         return { cfg: merge(DEFAULTS, raw), root: cwd };
     }
     const r = loadConfig(cwd);
-    if (!r.ok) throw new Error(`config invalid: ${(r.errors || []).join('; ')}`);
+    if (!r.ok) {
+        // Lint needs config only for rules 9/14/18; run with defaults rather than refusing.
+        console.error(`[spec-lint] config unavailable (${(r.errors || []).join('; ')}) — using defaults`);
+        return { cfg: DEFAULTS, root: r.root || cwd };
+    }
     return { cfg: r.resolved, root: r.root };
 }
 
@@ -104,7 +108,9 @@ export const lint = (src, { fileName = '', cfg = {} } = {}) => {
     let m;
     while ((m = wff.exec(src))) {
         const args = extractArgs(src, m.index + m[0].length - 1);
-        if (args && args.length >= 2 && args[1].startsWith('{'))
+        // Only the 2-arg form with an object literal is the bug: (fn, { timeout }) passes the options as
+        // the page-function argument. (fn, { anyArg }, { timeout }) is legitimate — never flag 3-arg calls.
+        if (args && args.length === 2 && args[1].startsWith('{'))
             add(11, SEV.CRITICAL, m.index, `waitForFunction 2-arg bug — second argument is an object (${args[1].slice(0, 30)}…)`, 'pass null as the 2nd argument and { timeout } as the 3rd');
         if (args && args.length === 1)
             add(11, SEV.CRITICAL, m.index, 'waitForFunction without null arg and { timeout }', 'use waitForFunction(fn, null, { timeout })');

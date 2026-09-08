@@ -12,8 +12,10 @@ import { loadKitConfig } from '../config-loader.js';
 // Binary assets fetched via fetch() (audio, fonts, images) must be loaded for real —
 // overriding them with JSON breaks decoding.
 const BINARY_ASSET_EXT_RE =
-    /\.(wav|mp3|ogg|m4a|aac|flac|mp4|webm|woff2?|ttf|otf|eot|png|jpe?g|gif|webp|svg|ico)(\?|$)/i;
+    /\.(wasm|wav|mp3|ogg|m4a|aac|flac|mp4|webm|woff2?|ttf|otf|eot|png|jpe?g|gif|webp|svg|ico)(\?|$)/i;
 
+// Binary assets fetched via fetch() (wasm for runtimes such as Lottie, audio, fonts) must be passed through:
+// a JSON stub is 2 bytes and makes the consumer fail on decode.
 // App-shell / bundler requests that must never be stubbed or the app will not boot.
 // A catch-all glob that swallows these (e.g. dev-server module requests) is a known
 // failure class: the app stays blank and the only symptom is a waitForAppReady timeout.
