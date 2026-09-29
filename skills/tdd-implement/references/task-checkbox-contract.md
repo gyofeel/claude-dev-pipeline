@@ -34,8 +34,8 @@ Placeholders: `<worksDir>`, `<slug>`, `<scope>` from config / pipeline state; `<
 - [ ] `node "${CLAUDE_PLUGIN_ROOT}/scripts/red-gate.mjs" --phase green --plan <worksDir>/<slug>/<slug>-plan.md --task N --file <abs test> --test "UCP-NN: <description>"`
       → confirm `{"ok":true,"collateral":{"newFailures":[]}}`
 
-- [ ] `<commands.format> <changed files>` (only if `commands.format` is set) && `git add -A`
-- [ ] `git commit -m "test(<scope>): TC-NN UCP-NN <summary> — RED→GREEN"`
+- [ ] `<commands.format> <changed files>` (only if `commands.format` is set) && `git add <changed files>`
+- [ ] `git commit -F .superpowers/sdd/<plan-basename>/commit-msg-task-N.txt`
 ````
 
 Rules:
@@ -44,3 +44,5 @@ Rules:
 - The `--test` string must equal the `it()` name character for character — it is red-gate's target filter.
 - Formatting runs **before every commit** because SDD commits per task and per fix round; a final "normalize once" pass never happens.
 - **Never `--no-verify`.** A blocked pre-commit hook is routed, not bypassed (see failure-routing.md).
+- **Stage named paths only — never `git add -A` / `git add .`.** Working trees routinely hold untracked credentials (`.env.*`); a blanket add commits them.
+- **The controller writes the commit message file before dispatch** (subject + the trailer the session prescribes, verbatim). The implementer commits with `-F` and never writes or edits the message — implementers were observed swapping the trailer for their own model name; handing them a file stopped it.

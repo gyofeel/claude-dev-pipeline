@@ -6,6 +6,7 @@ Every value comes from `red-gate.mjs` output: `failureClass`, `routeTo`, `consum
 |---|---|---|---|
 | `ENV` | **User** — report only (run `commands.setup`, reinstall deps, free the port, fix ownership). No auto-install, no `sudo` | **not consumed** | "fixing" healthy tests because the environment is broken |
 | `NOT_COLLECTED` | **Controller** — move the test file to a path matching `unitTest.testFileGlobs` (and not `excludedFilePatterns`). Never edit the runner config without explicit user approval | no | implementer misreading `0 failed` as green; several implementers each widening the glob |
+| `SKIPPED` | **Controller** — check that `unitTest.runnerArgs` selects the project/config that collects this file, and that no `it.skip` / `it.todo` / stray `.only` remains. **Do not touch production code** | no | reading a test that never ran as "passed at RED" and deleting working code |
 | `GREEN_WITHOUT_RED` | **Controller — stop.** Delete (not adapt) the production code and restart from RED | no (rule violation, not a bug) | the #1 TDD-agent failure: implement → write a passing test → report DONE. **Indistinguishable from real TDD in the final diff** |
 | `WRONG_REASON{module}` | **Implementer, test file only** — module-level failure (import, module-scope state, syntax) | consumed | papering over a broken test with production code |
 | `WRONG_REASON` | **Implementer, test file only** (no production code this round) | consumed | same |

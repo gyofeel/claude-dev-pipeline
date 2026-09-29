@@ -87,6 +87,15 @@ try {
     assert.equal(out.failureClass, 'GREEN_WITHOUT_RED');
     assert.equal(out.routeTo, 'controller:halt');
 
+    // SKIPPED at RED and GREEN (not GREEN_WITHOUT_RED / STILL_RED); vitest 'pending'/'todo' normalize to skipped
+    out = red('UCP-01: adds', { result: report([t('UCP-01: adds', 'skipped')]) });
+    assert.equal(out.failureClass, 'SKIPPED');
+    assert.equal(out.routeTo, 'controller:placement');
+    out = red('UCP-01: adds', { result: report([t('UCP-01: adds', 'pending')]) });
+    assert.equal(out.failureClass, 'SKIPPED');
+    out = green('UCP-01: adds', { result: report([t('UCP-01: adds', 'todo')]) });
+    assert.equal(out.failureClass, 'SKIPPED');
+
     // green before any RED on record → NO_RED_ON_RECORD
     out = green('UCP-01: adds', { result: report([t('UCP-01: adds', 'passed')]) });
     assert.equal(out.failureClass, 'NO_RED_ON_RECORD');
@@ -130,7 +139,7 @@ try {
     out = runGate(['--phase', 'red', '--plan', 'plan.md', '--file', 'a.test.js', '--test', 'x']);
     assert.equal(out.failureClass, 'GATE_ERROR');
 
-    console.log('selfcheck-redgate: all 15 checks passed');
+    console.log('selfcheck-redgate: all 18 checks passed');
 } finally {
     rmSync(tmp, { recursive: true, force: true });
 }

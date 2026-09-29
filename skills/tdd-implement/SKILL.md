@@ -44,9 +44,20 @@ Verification runs on the developer machine, not the production platform. **Anyth
 **superpowers must be installed — check first.**
 
 ```bash
-python3 -c "import json,os,sys; d=json.load(open(os.path.expanduser('~/.claude/settings.json'))).get('enabledPlugins',{}); sys.exit(0 if any(k.startswith('superpowers@') and v for k,v in d.items()) else 1)" \
-  && echo "superpowers OK" || echo "superpowers MISSING"
+python3 - <<'PY' && echo "superpowers OK" || echo "superpowers MISSING"
+import json, os, sys
+paths = [os.path.expanduser('~/.claude/settings.json'), '.claude/settings.json', '.claude/settings.local.json']
+def on(p):
+    try:
+        d = json.load(open(p)).get('enabledPlugins', {})
+    except (OSError, ValueError):
+        return False
+    return any(k.startswith('superpowers@') and v for k, v in d.items())
+sys.exit(0 if any(on(p) for p in paths) else 1)
+PY
 ```
+
+Plugins can be enabled per project, so user, project, and project-local settings are all read; any one enabling superpowers passes. Reading only the user file stops healthy projects here.
 
 `MISSING` → stop. No fallback path: without superpowers there is no record that tests were written first, which is the whole point.
 
@@ -147,7 +158,16 @@ diff /tmp/tc.ids /tmp/plan.ids
 
 Pass the plan path. SDD owns: workspace `.superpowers/sdd/<plan-basename>/`, `progress.md` ledger, per-task briefs, one fresh implementer per task, task reviewer, fix rounds ≤5 (model escalation at round 4), final branch review, `finishing-a-development-branch`.
 
-**Tell the SDD task reviewer**: trust `red-evidence.jsonl` and the gate JSON as the single source of truth; spend judgement only on the "left to humans" items below.
+**Tell the SDD task reviewer**: trust `red-evidence.jsonl` and the gate JSON as the single source of truth; spend judgement only on the "left to humans" items below. **Commit trailers are not a review item** — reviewers also claim their own model name is canonical and flag correct trailers as defects.
+
+### Dispatch rules
+
+Done by the controller **before** each dispatch, or pasted **verbatim** into the brief:
+
+1. **Write the commit message file first** — `.superpowers/sdd/<plan-basename>/commit-msg-task-N.txt`. The implementer commits it with `git commit -F`.
+2. **Re-measure line numbers and the `Files:` list** — earlier tasks add and move files after the plan is written. `grep -n` just before dispatch; fix the brief if it drifted.
+3. Brief, verbatim: "Do not run long commands in the background and end the turn without reporting the result. Wait in the foreground."
+4. Brief, verbatim: "Run tests only through red-gate or the one-shot form of `commands.unitTest` for a single file. Never a watch-mode command — it never exits."
 
 Failure handling: every value comes from red-gate's `failureClass` / `routeTo` / `consumesFixRound`. **The controller never classifies on its own.** Table: [failure-routing.md](references/failure-routing.md).
 

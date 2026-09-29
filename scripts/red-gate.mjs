@@ -66,6 +66,7 @@ const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const ROUTES = {
     ENV: 'user:env',
     NOT_COLLECTED: 'controller:placement',
+    SKIPPED: 'controller:placement',
     GREEN_WITHOUT_RED: 'controller:halt',
     NO_RED_ON_RECORD: 'controller:halt',
     TARGET_NOT_FOUND: 'implementer:test-only',
@@ -415,6 +416,15 @@ const main = () => {
             failureMessages: target.message ? target.message.split('\n').slice(0, 5).map((m) => firstLine(m, 400)) : []
         }
     };
+
+    // 4b. SKIPPED — the target did not run (skipped/pending/todo). Neither pass nor fail, so it must
+    //     not fall through to GREEN_WITHOUT_RED (whose advice says to delete production code) or STILL_RED.
+    if (target.status === 'skipped') {
+        finish('SKIPPED', {
+            ...targetInfo,
+            advice: 'The target test did not run (skipped). Check that unitTest.runnerArgs selects the project/config that collects this file, and that no it.skip / it.todo / stray .only remains. Do not delete production code.'
+        });
+    }
 
     if (args.phase === 'red') {
         // 5. GREEN_WITHOUT_RED — the test passed at RED time (rule violation or vacuous test)
