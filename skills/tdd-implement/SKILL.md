@@ -161,9 +161,16 @@ Inject:
 
 1. **`Spec:`** = absolute TC path (plus PRD path if present)
 2. **Save location override**: `<worksDir>/<slug>/<slug>-plan.md` — the plan alone keeps the slug in its filename because SDD names its workspace after the plan basename (a plain `plan.md` would make every feature share `.superpowers/sdd/plan/`)
-3. **`## Global Constraints`** = contents of config `constraintsFile`, **verbatim** — no summary, no rewrite; this is SDD's only channel to every implementer. If `constraintsFile` is null: derive ≤15 lines from `CLAUDE.md` / `AGENTS.md`, show them, and get `AskUserQuestion` confirmation before use. Then append these two pipeline rules (they apply to every project):
+3. **`## Global Constraints`** = contents of config `constraintsFile`, **verbatim** — no summary, no rewrite; this is SDD's only channel to every implementer. If `constraintsFile` is null: derive ≤15 lines from `CLAUDE.md` / `AGENTS.md`, show them, and get `AskUserQuestion` confirmation before use. Then append these pipeline rules (they apply to every project):
    - "When code and a PRD spec value (URL, key/signature basis, field name) disagree, do not change the code. Report the spec source the PRD cites and wait for the user — the PRD may have mis-copied the spec."
    - "When you conclude a PRD/TC requirement is wrong, do not change the requirement yourself. Report it as `upstream conflict` in the task report."
+   - "New comments say only what the code cannot: why, constraints, pitfalls, external spec sources. Never what the code does."
+   - "One line per comment as a rule, three at most. Doc comments (JSDoc etc.) only on exported functions, one or two sentences."
+   - "Comments never carry work history ('moved from X', 'deduplicated'; that goes in the commit message), future speculation ('if we later…'), or restated code ('// success')."
+   - "Comments never carry ticket or artifact IDs (issue keys, requirement N, AC-, TC-, UCP-, Task N). PRD/TC revisions renumber them and the comment turns false. State the reason in words."
+   - "When a reference is needed, give only the source: `// <spec name> p.18`, `// source: <file>`. No line numbers."
+   - "Write comments in the project's language the way a native speaker would. No translationese (literal structures carried over from another language, passive voice with inanimate subjects, noun-phrase chains)."
+   - "Leave existing comments as they are; these rules apply only to comments you write."
 4. **Task rules**
    - one implement TC = one task
    - title **must** be `### Task N: [TC-NN] <name>` — `[TC-NN]` is the traceability join key
@@ -251,9 +258,13 @@ Then run every `approvalGates[].check`:
 
 Non-empty output → **escalate to the user** with the gate name; a reviewer subagent cannot approve these.
 
-Then the two report-only gates (they never block):
+Then the report-only gates (they never block):
 
 ```bash
+# ticket/artifact IDs in new comments — <issueKeyPattern> from config; spec IDs that happen to match it can stay
+git diff -U0 <base>..HEAD -- '*.js' '*.mjs' '*.cjs' '*.ts' '*.jsx' '*.tsx' '*.vue' '*.svelte' ':!*.test.*' ':!*.spec.*' \
+  | awk '/^\+\+\+ b\//{f=substr($0,7)} /^\+[[:space:]]*(\/\/|\*|\/\*|<!--|#)/ && /(<issueKeyPattern>|AC-[0-9]+|TC-[0-9]+|UCP-[0-9]+|Task ?[0-9]+|[Rr]equirement ?[0-9]+)/{print f": "substr($0,2)}' \
+  | grep . || echo "no IDs in new comments"
 node "${CLAUDE_PLUGIN_ROOT}/scripts/surface-gate.mjs" --base <base>
 node "${CLAUDE_PLUGIN_ROOT}/scripts/coverage-gate.mjs" --prd <worksDir>/<slug>/prd.md --tc <worksDir>/<slug>/tc.md --plan <worksDir>/<slug>/<slug>-plan.md
 ```
@@ -283,6 +294,9 @@ Unconnected code (surface-gate)
    files: … / exports: …        ← "is this intended?"
    old identifiers left in existing specs: <token> → <spec:line> …
 
+IDs in new comments (I-7 grep)
+   <file>: <comment>          ← "none" when empty; otherwise ask whether to rewrite them as reasons
+
 Publishing source deviations (screens with a source only — collected from task reports)
    <file:line> — <reason>       ← "none" when empty
 
@@ -311,6 +325,7 @@ Next — E2E spec batch generation
 | Is the GREEN implementation really minimal | SDD task reviewer | "minimal" is relative to intent |
 | Is AC → TC decomposition sufficient | human | coverage itself is counted by `coverage-gate`; whether the ACs are right and the TC set complete is not provable |
 | Naming, structure, items in `approvalGates` | human | no oracle; these are approvals, not checks |
+| Do new comments follow the comment rules (reason only, concise, no translationese) | SDD task reviewer | translationese and verbosity have no syntactic signature; only IDs are counted by the I-7 grep |
 | Legitimate one-shot timer vs forbidden polling | reviewer | syntactically identical; a detector that flags both teaches suppression |
 
 ## Related
