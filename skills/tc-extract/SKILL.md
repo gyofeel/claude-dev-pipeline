@@ -201,8 +201,12 @@ Print the summary table, then ask:
 | TC-04 | … | regression | Low | 5 | e2e | — | ⚠️ partial: <spec> |
 
 Manual review: TC-03 (unit-verified)
-Unit targets: TC-01, TC-03 → /dev-pipeline:tdd-implement
+Unit targets: TC-01, TC-03 → /dev-pipeline:tdd-implement unit tasks
+E2E/manual TCs: TC-02, TC-04 → implementation owner decided at /dev-pipeline:tdd-implement I-3b (new-implementation mode)
+AC coverage: N PRD ACs, ACs without a TC — AC-NN, … ("none" if none)
 ```
+
+> **An AC without a TC blocks `Confirm all`.** For each such AC ask `Add TC` or `Exclude (reason)`; exclusions are written to the TC file as the `## AC exclusions` table (`| AC-NN | reason |`). Right after saving, Step 5 runs `coverage-gate` to redo this check deterministically.
 
 > The `Unit` column is where the user catches a wrong 4b-2 call — a focus/render/platform-dependent TC showing `UCP N` should be flipped here.
 
@@ -221,6 +225,14 @@ Slug precedence: 1) slug passed by the caller; 2) if the PRD path is `<worksDir>
 - options: `Save here` / `Change slug` (text; directory under `worksDir`) / `Back to the TC review`
 
 `mkdir -p <worksDir>/<slug>` then write. Priority/type definitions: tc-format.md.
+
+**AC check right after saving [automatic]** — when a PRD exists:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/coverage-gate.mjs" --prd <PRD path> --tc <worksDir>/<slug>/tc.md
+```
+
+Non-empty `uncovered` → back to Step 4d for those ACs. `ok:false` (nothing parsed) means the AC / `Related AC` notation is broken — do not read silence as success. When gates counted only output volume (N TCs, N UCPs), a whole AC could vanish unnoticed (observed downstream).
 
 ---
 

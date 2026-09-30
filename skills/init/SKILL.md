@@ -50,6 +50,14 @@ Read `package.json`, lockfiles, and the directory tree. Collect these; note the 
 
 Do not read the runner config files by executing them; grep for the keys.
 
+**Optional, not detected** — written only when the user sets them (update mode keeps existing values). They tune `scripts/surface-gate.mjs`:
+
+| Key | Meaning | Default |
+|---|---|---|
+| `surfaceGate.autoEntryPaths` | repo-relative path prefixes the framework registers by location (e.g. `app/pages/`, `server/api/`) — new files there count as reachable without an import | `[]` |
+| `surfaceGate.specPaths` | where existing specs and their helpers live; vanished tokens are searched here | `e2e.specsDir`, `e2e.fixturesDir`, `e2e.kitDir` |
+| `surfaceGate.nonProductionPaths` | extra path prefixes excluded from "production" (tooling, docs, scripts) on top of test files and `specPaths` | `[]` |
+
 ## Step 3 — Show detection, ask the rest
 
 Print the detected values as one grouped block (commands / unit tests / ui / e2e), each line with its evidence in parentheses. Then ask, in at most two `AskUserQuestion` rounds, only the items below. Skip a question when the existing config (update mode) already answers it.

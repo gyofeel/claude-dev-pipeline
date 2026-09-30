@@ -27,6 +27,8 @@ Missing or invalid → stop: "Run `/dev-pipeline:init` first." Everything below 
 
 Verification runs on the developer machine, not the production platform. **Anything listed in config `unitTest.excludedAreas` is not a unit target** — it belongs to `/dev-pipeline:e2e-test`. Blurring this line produces mocks for interfaces that never answer and tests that assert nothing.
 
+> **Verification layer ≠ implementation owner.** `Unit target: (none)` means "verified by E2E", not "implemented by E2E". `/dev-pipeline:e2e-test` generates specs; it never implements the feature. So the implementation owner of every E2E/manual TC is **decided at I-3b** — leave it undecided and that TC is implemented by no stage of the pipeline while every gate stays green (observed downstream: 9 of 22 TCs, the user-visible behaviour of the feature).
+
 ## Delegation boundary
 
 | This skill owns | Delegated to superpowers |
@@ -34,7 +36,7 @@ Verification runs on the developer machine, not the production platform. **Anyth
 | TC parsing + verification-layer re-confirmation (human gate) | plan writing → `superpowers:writing-plans` |
 | **Wiring the gate into plan checkboxes** | execution, per-task review, fix rounds ≤5, final review → `superpowers:subagent-driven-development` |
 | Failure routing table ([failure-routing.md](references/failure-routing.md)) | per-task TDD discipline → `superpowers:test-driven-development` |
-| `${CLAUDE_PLUGIN_ROOT}/scripts/red-gate.mjs` | completion claims → `superpowers:verification-before-completion` |
+| `${CLAUDE_PLUGIN_ROOT}/scripts/red-gate.mjs` · `surface-gate.mjs` · `coverage-gate.mjs` | completion claims → `superpowers:verification-before-completion` |
 | E2E handoff + selector refresh | branch wrap-up → `superpowers:finishing-a-development-branch` |
 
 **No second retry loop.** SDD already has fix rounds + model escalation + final review. This skill only supplies the routing table that says which SDD lever to pull.
@@ -85,9 +87,11 @@ Read per [tc-format.md](../tc-extract/references/tc-format.md). Extract:
 | Unit target | Class |
 |---|---|
 | test file path | **implement** |
-| `(none)` | E2E only — out of scope here |
+| `(none)` | **implementation owner decision needed** — E2E/manual verifies it; who implements it is decided at I-3b |
 
-Zero implement TCs → report "No unit targets in this feature. Continue with `/dev-pipeline:e2e-test`." and stop. This is a normal outcome, not an error.
+Also read the TC file's `## Implementation surface` (new-implementation mode) and the `(new)` selectors / state paths in checkpoints. They list **DOM and state that do not exist yet** and are shown at I-3b as the basis for the owner decision.
+
+Zero implement TCs does **not** end the skill. Decide the owners of the E2E/manual TCs at I-3b first; only if every one is `existing` or `split`, report "Nothing for this skill to implement. Continue with `/dev-pipeline:e2e-test`." and stop.
 
 > The PRD referenced as `Spec:` may be any spec document, not only prd-extract output. Without the standard header, confirm the AC list with the user.
 
@@ -122,6 +126,35 @@ git switch -c <branchPrefix><slug>
 
 > This is the last human check on the verification layer. The code does not exist yet, so no script can judge it; a keyword heuristic used as a gate gets gamed.
 
+### I-3b — Implementation owner of E2E/manual TCs → `AskUserQuestion` [gate; cannot proceed with a blank]
+
+`(none)` TCs are **decisions, not exclusions**. Show this table first:
+
+```
+N TCs are verified by E2E/manual only. Without a unit test, nothing in the pipeline implements them yet.
+| TC | Name | AC | E2E rationale | Surface to build ((new) selectors / state paths) |
+|----|------|----|---------------|---------------------------------------------------|
+| TC-11 | … | AC-04, AC-15 | focus · render | .remaining-count (new), auth.remainCount (new) |
+```
+
+One choice per TC (group identical answers when there are many):
+- `Implement here` — add a **wiring task** to the plan (I-4 wiring rules)
+- `Split` — take the issue key as text
+- `Already implemented` — existing code, verification only (re-confirm when the TC carries `(new)` surface)
+
+Record the decisions in the plan section `## Implementation owners` — `${CLAUDE_PLUGIN_ROOT}/scripts/coverage-gate.mjs` and I-5 read it. Owner values are exactly `Task N`, `split <ISSUE-KEY>`, or `existing`.
+
+```
+## Implementation owners
+| TC | Owner | Reason |
+|----|-------|--------|
+| TC-11 | Task 15 | wiring — fetch remaining count on entry and render it |
+| TC-17 | existing | shared template applies automatically — regression check only |
+| TC-24 | split PROJ-999 | entry path not reachable yet |
+```
+
+> `Reclassify` above moves a TC from unit to E2E; this question makes sure **its implementer does not disappear with it**. Without it, "nobody owns this" is the default.
+
 ## I-4 — Plan → `Skill: superpowers:writing-plans`
 
 Inject:
@@ -136,21 +169,36 @@ Inject:
    - `**Interfaces:**` = the UCP table's `Target (module#export)` column
    - every UCP row → at least one `expect` in Task Step 1
    - test names **`it('UCP-NN: <description>')`** — the exact `red-gate --test` target
-5. **Checkbox shape** = [task-checkbox-contract.md](references/task-checkbox-contract.md)
+5. **Wiring-task rules** (TCs answered `Implement here` at I-3b)
+   - same title shape `### Task N: [TC-NN] <name>`. When one task owns several TCs, write the others as **bracketed** `[TC-NN]` in the body — a bare `TC-NN` counts only as a reference
+   - **get RED from a component mount test** when the UI framework supports one — follow the mount-test convention in `constraintsFile` / `unitTest.testNaming` (do not assume a framework). "Does the button call the new API", "is the remaining count rendered" are mount-testable. That test is the task's `**Files:** Test:` and the red-gate steps are the normal ones
+   - only what a mount test cannot observe (real focus movement, native round trips, routing round trips) gets `**RED exempt:** <reason>` and no red-gate steps. Exempt tasks **must** be checked in the I-7 reachability report
+   - a task that changes existing files first pins current behaviour with a **characterization test**
+6. **`## Implementation owners`** = the I-3b decision table, verbatim
+7. **Checkbox shape** = [task-checkbox-contract.md](references/task-checkbox-contract.md)
 
 ## I-5 — Traceability gate [automatic]
 
 ```bash
 TC=<worksDir>/<slug>/tc.md
 PLAN=<worksDir>/<slug>/<slug>-plan.md
+# TC side: unit TCs / E2E-manual TCs
 awk '/^### TC-/{tc=$2; sub(/:$/,"",tc)}
-     /^\| \*\*Unit target\*\*/{ if ($0 !~ /\(none\)/) print tc }' "$TC" | sort -u > /tmp/tc.ids
+     /^\| \*\*Unit target\*\*/{ print tc, ($0 ~ /\(none\)/ ? "E" : "U") }' "$TC" | sort -u > /tmp/tc.kinds
+awk '$2=="U"{print $1}' /tmp/tc.kinds > /tmp/tc.unit
+awk '$2=="E"{print $1}' /tmp/tc.kinds > /tmp/tc.e2e
+# plan side: bracketed [TC-NN] in tasks + TCs in the owners table
 grep -oE '\[TC-[0-9]+\]' "$PLAN" | tr -d '[]' | sort -u > /tmp/plan.ids
-echo "TC=$(wc -l < /tmp/tc.ids) PLAN=$(wc -l < /tmp/plan.ids)"
-diff /tmp/tc.ids /tmp/plan.ids
+sed -n '/^## Implementation owners/,/^## [^I]/p' "$PLAN" | grep -oE '^\| *TC-[0-9]+' | grep -oE 'TC-[0-9]+' | sort -u > /tmp/owner.ids
+
+echo "UNIT=$(wc -l < /tmp/tc.unit) E2E=$(wc -l < /tmp/tc.e2e) PLAN=$(wc -l < /tmp/plan.ids) OWNER=$(wc -l < /tmp/owner.ids)"
+echo "--- unit TCs without a task";        comm -23 /tmp/tc.unit /tmp/plan.ids
+echo "--- E2E/manual TCs without an owner"; comm -23 /tmp/tc.e2e <(sort -u /tmp/plan.ids /tmp/owner.ids)
 ```
 
-**Read both counts first.** A silent `diff` with `TC=0` means parsing broke — **silence is not success**; treat as gate failure. Counts equal and diff empty → pass. Otherwise send the missing ids back to `writing-plans`.
+**Read the counts first.** An empty list and a broken `awk` that caught nothing look the same — **silence is not success**. `UNIT=0` and `E2E=0` together means parsing broke; treat as gate failure.
+
+Both lists empty → pass. **Unit TC without a task** → back to `writing-plans`. **E2E/manual TC without an owner** → back to I-3b. Comparing unit TCs only made it structurally impossible for this gate to see that an E2E TC had no implementer.
 
 > `writing-plans` self-review has a coverage pass, but that is an LLM re-reading its own output. A quietly dropped TC surfaces hours later in the E2E branch.
 
@@ -189,14 +237,37 @@ Then run every `approvalGates[].check`:
 
 Non-empty output → **escalate to the user** with the gate name; a reviewer subagent cannot approve these.
 
+Then the two report-only gates (they never block):
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/surface-gate.mjs" --base <base>
+node "${CLAUDE_PLUGIN_ROOT}/scripts/coverage-gate.mjs" --prd <worksDir>/<slug>/prd.md --tc <worksDir>/<slug>/tc.md --plan <worksDir>/<slug>/<slug>-plan.md
+```
+
+**What `surface-gate` reports** — a unit gate stays green even when the code has **zero callers**, so this counts them separately.
+- `reachability.unreachableFiles` / `unreferencedExports` — files and exports added on this branch that production code never uses. Non-empty → ask the user the `question` text verbatim ("is this intended?"). Building a library layer first can be deliberate, so it **does not block**. Surface created by `RED exempt` wiring tasks must be empty here.
+- `vanishedTokens` — identifiers and path fragments this branch removed or renamed that are gone from production but still present under `surfaceGate.specPaths`. Renaming a query knob or an endpoint kills existing specs **silently** (the old parameter is simply ignored). `comment: true` hits are leftovers in comments and not urgent.
+- `limits` — members added to existing files without an export line (store actions, composable return members) are not detected; **code that is connected but calls the wrong target** is not detected either. Reachability is necessary, not sufficient.
+
+**What `coverage-gate` reports** — per AC: `implemented` (a related TC is bracketed `[TC-NN]` in a task) / `verifyOnly` (mentioned bare in a task body, or owner `existing`) / `split` / `excluded` / `missing`. `missing` is likely a defect — put it at the top of the completion report.
+
 Apply `superpowers:verification-before-completion` — **no completion claim without the actual command output above.**
 
 ## I-8 — E2E handoff → `AskUserQuestion`
 
 ```
 ✅ TDD implementation complete — <worksDir>/<slug>/<slug>-plan.md
-   Tasks N done / unit tests M passing
+   Tasks N done (wiring K, RED exempt R) / unit tests M passing
    RED evidence: .superpowers/sdd/<slug>-plan/red-evidence.jsonl
+
+AC coverage (coverage-gate)
+   A ACs — implemented a · verify-only v · split s · excluded x · missing m
+   missing: AC-NN, …            ← warn at the top when non-zero
+   | AC | State | TC | Owner |
+
+Unconnected code (surface-gate)
+   files: … / exports: …        ← "is this intended?"
+   old identifiers left in existing specs: <token> → <spec:line> …
 
 Next — E2E spec batch generation
   /dev-pipeline:e2e-test <worksDir>/<slug>/tc.md
@@ -218,7 +289,7 @@ Next — E2E spec batch generation
 | Is this requirement unit / E2E / manual | LLM proposes → **human confirms** (I-3) | no code yet, nothing for a script to read |
 | Does the test check behaviour or implementation detail | SDD task reviewer | no syntactic signature |
 | Is the GREEN implementation really minimal | SDD task reviewer | "minimal" is relative to intent |
-| Is AC → TC decomposition sufficient | human | coverage is checkable, completeness is not |
+| Is AC → TC decomposition sufficient | human | coverage itself is counted by `coverage-gate`; whether the ACs are right and the TC set complete is not provable |
 | Naming, structure, items in `approvalGates` | human | no oracle; these are approvals, not checks |
 | Legitimate one-shot timer vs forbidden polling | reviewer | syntactically identical; a detector that flags both teaches suppression |
 
@@ -228,3 +299,5 @@ Next — E2E spec batch generation
 - `../e2e-test/SKILL.md` — screen verification after implementation
 - `../auto-dev-pipeline/SKILL.md` — 4-stage orchestrator containing this skill
 - `${CLAUDE_PLUGIN_ROOT}/scripts/red-gate.mjs` — RED/GREEN verification + evidence ledger
+- `${CLAUDE_PLUGIN_ROOT}/scripts/surface-gate.mjs` — reachability (unconnected new files/exports) + vanished tokens (old identifiers left in existing specs)
+- `${CLAUDE_PLUGIN_ROOT}/scripts/coverage-gate.mjs` — AC → TC (→ Task) coverage; shared by tc-extract and I-7

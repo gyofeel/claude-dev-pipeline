@@ -132,7 +132,15 @@ If a manual TC has a `Unit target`, add `unit-verified` to the reason so reviewe
 | Planned path | Kind | Nearest sibling | Sibling test | Registration | Mocks needed | TCs |
 |--------------|------|-----------------|--------------|--------------|--------------|-----|
 
-Every path here was confirmed on disk (siblings) or is explicitly `(new)`. `tdd-implement` fills plan `Files:` and `Interfaces:` from this table. Batch parsers ignore this section.
+Every path here was confirmed on disk (siblings) or is explicitly `(new)`. `tdd-implement` fills plan `Files:` and `Interfaces:` from this table, and shows its `(new)` rows at I-3b as the surface still to be built. Batch parsers ignore this section.
+
+### `## AC exclusions` *(only when an AC was excluded at the Step 4d review)*
+
+| AC | Reason |
+|----|--------|
+| AC-07 | out of scope for this release — tracked in PROJ-123 |
+
+An AC listed here is reported as `excluded` by `coverage-gate` instead of `uncovered` / `missing`. The first cell must contain the `AC-NN` id; the reason is required. Batch parsers ignore this section.
 
 ## Priority and type rules
 

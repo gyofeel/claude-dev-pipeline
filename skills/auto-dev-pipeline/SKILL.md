@@ -15,6 +15,8 @@ requirements                 TCs (new-impl mode)          TDD implementation    
 with -no-e2e:  … → dev-pipeline:tdd-implement →G→ (end)
 ```
 
+> **What gets implemented is decided by `tdd-implement` I-3b, not by each TC's verification layer.** TCs with a `Unit target` become unit tasks; E2E/manual TCs are assigned there to a `wiring task`, `split`, or `existing`. `e2e-test` only generates specs and never implements, so if that decision is left blank the screen behaviour ships unimplemented while every gate is green (observed downstream).
+
 **Gate contract, slug rules, and the state-file schema are defined once in `../auto-e2e-pipeline/references/shared-contract.md`. Read it and follow it exactly.** Only the state file's `pipeline` value differs: `"auto-dev-pipeline"`.
 
 ## Usage
@@ -124,33 +126,26 @@ Then **Gate G2**.
 
 ### Gate G2 — TC review
 
-- Metrics: `TC N (unit N · e2e N · manual N) · UCP N · new files N`
+- Metrics: `ACs without a TC N of N · TC N (unit N · e2e N · manual N) · UCP N · new files N`
+- **AC check — run it first; if anything is uncovered, G2 is not approved.**
+  ```bash
+  node "${CLAUDE_PLUGIN_ROOT}/scripts/coverage-gate.mjs" --prd <worksDir>/<slug>/prd.md --tc <worksDir>/<slug>/tc.md
+  ```
+  Non-empty `uncovered` → before offering the gate options, have the user pick one per AC:
+  - `Add TC` — back to Step 2 to write that AC's TC
+  - `Exclude` — take a reason and record it in the TC file's `## AC exclusions` table (`| AC-NN | reason |`); it reappears as `excluded` in the completion coverage table
+
+  When G2 counted only output volume (TCs, UCPs), a whole AC could drop out while the gate stayed green. Also read `unknownRefs` (TCs pointing at ACs the PRD does not have).
 - Checklist:
   - **the `Unit target` classification is right** — the hardest decision to undo in this pipeline. Anything listed in config `unitTest.excludedAreas` that got a unit target will burn fix rounds and end up back in E2E
-  - predicted targets and state paths carry the `(new)` suffix — they are refreshed with real values in the E2E stage
+  - predicted targets and state paths carry the `(new)` suffix — **`(new)` is DOM and state that does not exist yet, i.e. the list of things to build.** On E2E-only TCs it is the basis for the owner decision at `tdd-implement` I-3b; real values replace it in the E2E stage
   - `## Implementation surface` places new files where the project structure expects them
 
-### Right after G2 — zero unit targets
+### Right after G2 — zero unit targets still go to Step 3
 
-If **no** TC has a `Unit target`, ask whether to skip implementation:
+Zero TCs with a `Unit target` does **not** skip implementation. This pipeline handles features with no code, so "no unit targets" means "all of the implementation is on the screen side", not "nothing to implement". `tdd-implement` decides the owners of the E2E/manual TCs at I-3b and creates wiring tasks.
 
-**Question**: "No TC has a unit target. What should happen to the implementation stage?"
-- header: `Implementation`
-- options:
-  - `Skip implementation, go to E2E` — jump to Step 4; this feature is verified end-to-end
-  - `Reclassify verification layers` — back to Step 2 to revisit `Unit target`
-  - `Stop here`
-
-> This is a **normal outcome** given a repository's testability boundary. Forcing unit targets produces tests that assert nothing.
-
-**⚠️ Combined with `-no-e2e`** — zero unit targets *and* `-no-e2e` leaves **no stage to run**. Ask this instead:
-
-**Question**: "There are no unit targets and the E2E stage is disabled, so nothing is left to run. What should happen?"
-- header: `Nothing to run`
-- options:
-  - `Run the E2E stage` — drop `-no-e2e` for this run, go to Step 4
-  - `Reclassify verification layers` — back to Step 2
-  - `Stop after the TC file` — record state and end; the TC file stays for later
+> This spot used to offer `Skip implementation, go to E2E`. For a feature with no code, that choice sends E2E specs to verify a screen that does not exist.
 
 ---
 
@@ -164,11 +159,14 @@ Then **Gate G3**.
 
 ### Gate G3 — Implementation review
 
-- Metrics: `tasks N · unit tests N passing · commits N · RED evidence N`
+- Metrics: `tasks N (wiring N · RED exempt N) · unit tests N passing · commits N · RED evidence N · ACs missing N · unconnected N`
 - Checklist:
   - **each RED entry in `red-evidence.jsonl` precedes its GREEN entry in time** — the only proof TDD actually happened
   - `git log --oneline` shows one commit per task and **no `--no-verify` bypass**
   - for every config `approvalGates[]` entry whose `check` printed output: approve it explicitly or send it back
+  - **no `missing` in the AC coverage** — the `coverage-gate` table in the `tdd-implement` completion report; a `missing` AC is a defect
+  - **unconnected new files/exports are intended** — `surface-gate` `reachability`; tests pass but the app cannot reach this code
+  - **with `-no-e2e`, always read `surface-gate` `vanishedTokens`** — without an E2E run it is the only signal that existing specs broke silently
 
 Confirm with:
 
@@ -178,6 +176,8 @@ BASE=$(git merge-base HEAD $(git symbolic-ref --short refs/remotes/origin/HEAD 2
 git log --oneline $BASE..HEAD
 # then each approvalGates[].check from the config, e.g.:
 #   BASE=$BASE bash -c "<approvalGates[i].check>"   ← checks may use $BASE; non-empty output = needs the user's explicit approval
+node "${CLAUDE_PLUGIN_ROOT}/scripts/surface-gate.mjs" --base $BASE
+node "${CLAUDE_PLUGIN_ROOT}/scripts/coverage-gate.mjs" --prd <worksDir>/<slug>/prd.md --tc <worksDir>/<slug>/tc.md --plan <worksDir>/<slug>/<slug>-plan.md
 ```
 
 ---

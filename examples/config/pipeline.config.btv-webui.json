@@ -49,6 +49,12 @@
     "testIdAttribute": "data-testid"
   },
 
+  "surfaceGate": {
+    "autoEntryPaths": ["app/pages/", "app/plugins/", "app/layouts/", "app/middleware/", "server/api/", "server/routes/", "server/plugins/", "server/middleware/", "modules/"],
+    "specPaths": ["playwright/"],
+    "nonProductionPaths": ["scripts/", ".agents/", ".claude/", "test/"]
+  },
+
   "e2e": {
     "specsDir": "playwright/ui-tests/scenarios",
     "fixturesDir": "playwright/fixtures",
