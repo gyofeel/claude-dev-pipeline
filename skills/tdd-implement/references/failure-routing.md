@@ -16,6 +16,7 @@ Every value comes from `red-gate.mjs` output: `failureClass`, `routeTo`, `consum
 | `COLLATERAL_RED`, failing test **inside** plan `Files:` | Implementer — name the failing test | consumed | — |
 | `COLLATERAL_RED`, failing test **outside** plan `Files:` | **User — stop.** Shared code outside the declared surface was touched | no | the two worst agent "repairs": fixing pre-existing failures it did not cause, deleting failing tests |
 | pre-commit hook blocked (formatter / lint check) | Implementer — run `commands.format`, recommit. **Never `--no-verify`** | no | hook bypass accumulating format debt |
-| TC / PRD contradictory or insufficient | Report to user | no | implementing imagined requirements |
+| TC / PRD contradictory or insufficient | Report to user; when the conclusion overturns a requirement, run the Upstream rewind procedure (SKILL.md) | no | implementing imagined requirements; a dropped requirement left in the docs and flagged as unimplemented next round |
+| Code and a PRD spec value (URL, key basis, field) differ | **User — report before changing code**; check the spec source the PRD cites | no | "fixing" correct code to match a PRD that mis-copied the spec |
 
 Cost tiers: deterministic gates run as direct Bash (no LLM re-spawn); per-task green runs one file; the full suite (`--all`) runs once at the final gate.

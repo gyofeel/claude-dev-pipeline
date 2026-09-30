@@ -161,7 +161,9 @@ Inject:
 
 1. **`Spec:`** = absolute TC path (plus PRD path if present)
 2. **Save location override**: `<worksDir>/<slug>/<slug>-plan.md` — the plan alone keeps the slug in its filename because SDD names its workspace after the plan basename (a plain `plan.md` would make every feature share `.superpowers/sdd/plan/`)
-3. **`## Global Constraints`** = contents of config `constraintsFile`, **verbatim** — no summary, no rewrite; this is SDD's only channel to every implementer. If `constraintsFile` is null: derive ≤15 lines from `CLAUDE.md` / `AGENTS.md`, show them, and get `AskUserQuestion` confirmation before use.
+3. **`## Global Constraints`** = contents of config `constraintsFile`, **verbatim** — no summary, no rewrite; this is SDD's only channel to every implementer. If `constraintsFile` is null: derive ≤15 lines from `CLAUDE.md` / `AGENTS.md`, show them, and get `AskUserQuestion` confirmation before use. Then append these two pipeline rules (they apply to every project):
+   - "When code and a PRD spec value (URL, key/signature basis, field name) disagree, do not change the code. Report the spec source the PRD cites and wait for the user — the PRD may have mis-copied the spec."
+   - "When you conclude a PRD/TC requirement is wrong, do not change the requirement yourself. Report it as `upstream conflict` in the task report."
 4. **Task rules**
    - one implement TC = one task
    - title **must** be `### Task N: [TC-NN] <name>` — `[TC-NN]` is the traceability join key
@@ -174,6 +176,7 @@ Inject:
    - **get RED from a component mount test** when the UI framework supports one — follow the mount-test convention in `constraintsFile` / `unitTest.testNaming` (do not assume a framework). "Does the button call the new API", "is the remaining count rendered" are mount-testable. That test is the task's `**Files:** Test:` and the red-gate steps are the normal ones
    - only what a mount test cannot observe (real focus movement, native round trips, routing round trips) gets `**RED exempt:** <reason>` and no red-gate steps. Exempt tasks **must** be checked in the I-7 reachability report
    - a task that changes existing files first pins current behaviour with a **characterization test**
+   - when the PRD's `## Design Guide › Publishing source` lists a source file for the screen, put this in the brief verbatim: "Copy markup (tags, class combinations, visibility conditions) from the source `<file>`. Do not rewrite it. Report every place you differ from the source as `source deviation: <location> — <reason>`." A matching stylesheet does not help when the markup differs — hooks exist and values are right, so no automated check fails
 6. **`## Implementation owners`** = the I-3b decision table, verbatim
 7. **Checkbox shape** = [task-checkbox-contract.md](references/task-checkbox-contract.md)
 
@@ -216,6 +219,17 @@ Done by the controller **before** each dispatch, or pasted **verbatim** into the
 2. **Re-measure line numbers and the `Files:` list** — earlier tasks add and move files after the plan is written. `grep -n` just before dispatch; fix the brief if it drifted.
 3. Brief, verbatim: "Do not run long commands in the background and end the turn without reporting the result. Wait in the foreground."
 4. Brief, verbatim: "Run tests only through red-gate or the one-shot form of `commands.unitTest` for a single file. Never a watch-mode command — it never exits."
+
+### Upstream rewind — when implementation overturns a requirement
+
+The pipeline flows upstream → downstream only. When a task report says `upstream conflict: yes`, the controller rewinds **before dispatching the next task**:
+
+1. Show the places to rewind as a table and confirm with `AskUserQuestion` — `Rewind as reported` / `Keep the original requirement (revert the implementation)` / `I'll enter the change`. **Changing a requirement is a human decision.**
+2. On confirmation the controller edits the PRD (requirements, ACs, related tables) and the TC file (UCP expectations, checkpoints, success criteria), and adds one revision line at the top of both: `> **Revised**: <YYYY-MM-DD> — found while implementing Task N: <old requirement> → <new requirement>`
+3. Affected unit-test expectations are fixed in **the same task's fix round**, without consuming a round — this is a requirement change, not a defect.
+4. The I-7 `coverage-gate` then runs against the revised PRD. Skip the rewind and the dropped AC shows up as `missing`.
+
+> In a downstream project one overturned requirement meant 4 PRD places, 4 TC places and 7 unit-test expectations rewound from memory.
 
 Failure handling: every value comes from red-gate's `failureClass` / `routeTo` / `consumesFixRound`. **The controller never classifies on its own.** Table: [failure-routing.md](references/failure-routing.md).
 
@@ -268,6 +282,12 @@ AC coverage (coverage-gate)
 Unconnected code (surface-gate)
    files: … / exports: …        ← "is this intended?"
    old identifiers left in existing specs: <token> → <spec:line> …
+
+Publishing source deviations (screens with a source only — collected from task reports)
+   <file:line> — <reason>       ← "none" when empty
+
+Upstream rewinds (confirmed through the rewind procedure)
+   Task N — <old requirement> → <new requirement> / PRD <places> · TC <places>
 
 Next — E2E spec batch generation
   /dev-pipeline:e2e-test <worksDir>/<slug>/tc.md

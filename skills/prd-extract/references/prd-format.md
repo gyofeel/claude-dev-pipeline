@@ -49,9 +49,18 @@ Checkbox list with ids `AC-01`, `AC-02`, … `tc-extract` maps each AC to at lea
 
 ### Endpoints
 
-| Method | Path | Role |
-|--------|------|------|
-| GET | /api/<path> | <role> |
+| Method | Path | Role | Source (required for spec input) |
+|--------|------|------|----------------------------------|
+| GET | /api/<path> | <role> | <spec file · section/table> |
+
+### Spec I/F cross-check *(only when the input was an external interface spec)*
+
+| I/F ID | Method · path | Requirement | Handling |
+|--------|---------------|-------------|----------|
+| <IF-XXX-001> | POST /<path> | Requirement N | — |
+| <IF-XXX-002> | GET /<path> | — | out of scope: <reason> |
+
+Do not save the PRD while a row has no requirement and no handling.
 
 ### Fixture mapping
 
@@ -137,6 +146,12 @@ Steps are written in plain interaction language (click, type, press KEY, wait fo
 | Item | Reason |
 |------|--------|
 | <item> | visual comparison / real device / … |
+
+### Publishing source *(only when Step 4-b received paths)*
+
+| Screen · state | Source file | Notes |
+|----------------|-------------|-------|
+| <login form> | <LoginForm.source.vue> | <state without a source: "none — keep as-is"> |
 ```
 
 ## `## Exceptions` *(omit if none)*
@@ -175,3 +190,5 @@ Every `Pass`, unclear, or inferred item ends up here. **Nothing is silently drop
 | `## UI Scenarios` → Interaction sequences | `#### Entry path` |
 | `## Design Guide` → hooks | `#### Checkpoints` DOM targets |
 | `## Open Questions` | Step 3.5 uncertain items / manual review requests |
+| `## Server Interface` → Spec I/F cross-check · Source | `tdd-implement` — the original to check when code and a spec value disagree |
+| `## Design Guide` → Publishing source | `tdd-implement` wiring-task brief (copy markup) · completion report source deviations |

@@ -81,6 +81,9 @@ Omit the "Needs confirmation now" block when empty.
   - <code>: <description>
 - Boundary cases:
   - <empty list, max values …>
+- Spec I/F cross-check (spec input only):
+  - <I/F ID> <path> → Requirement N / ⚠️ unmatched
+- Spec values without a source: <value> (spec input only)
 
 📡 <label> interface:                  ← only when collected
 - Mechanism: <bridge object / postMessage / SDK>

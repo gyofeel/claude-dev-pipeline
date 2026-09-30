@@ -134,6 +134,10 @@ Always ask about the **server API**; ask about the **platform bridge** only when
 
 Follow-up texts and what to extract: [interview-prompts.md § Step 2](references/interview-prompts.md). Attached files are read with Read.
 
+**When the material is an external interface spec, do two more things.** A defect introduced while copying the spec into the PRD is invisible to every later check — AC coverage uses the PRD as its baseline.
+1. **I/F list cross-check** — list **every** interface the spec defines (I/F ID · method · path) and map each to a requirement. Unmatched interfaces are resolved at Step 2.5. (A downstream project missed a new endpoint here: no requirement, so no AC, TC or task, and the implementation kept calling the old path.)
+2. **Source for every copied spec value** — each URL, key/signature basis, and field name written into the PRD carries its location in the spec (file · page/sheet · section/table). When the spec lists both a proxy URL and a target URL, **name the one the web client calls.** (The same project copied the target path and was routed to the old API; a mis-copied key basis nearly led to "fixing" correct code.)
+
 ### Step 2.5 — Confirm interfaces → `AskUserQuestion` [only when something was provided]
 
 Run the resolution check first. **Chunking**: more than 5 endpoints (or events) → confirm in groups, one round per group.
@@ -141,6 +145,8 @@ Run the resolution check first. **Chunking**: more than 5 endpoints (or events) 
 Before proposing fixture names, call the `dev-pipeline:fixture-advisor` agent with the endpoint list and target screen. Mark each endpoint's fixture `✅ exists` or `🆕 needed` against `e2e.fixturesDir`.
 
 Summary template: [interview-prompts.md § Step 2.5](references/interview-prompts.md).
+
+**Spec input with unmatched interfaces** → before this confirmation, resolve each one: `Add requirement` (draft the requirement and AC) or `Out of scope` (take a reason). A copied spec value without a source stays `unclear` and blocks like a required slot.
 
 **Question**: "Is this understanding of the external interfaces correct?"
 - header: `Confirm interfaces`
@@ -170,6 +176,17 @@ Resolution check, then the summary (template in [interview-prompts.md § Step 3.
 
 `Same as the UI scenarios` → reuse the Step 3 agent result; do not spawn again. Otherwise dispatch a `general-purpose` subagent with the goals in [interview-prompts.md § Step 4](references/interview-prompts.md): hooks in `ui.selectorPriority` order (test ids first), component states, responsive notes, items that need manual visual review.
 
+### Step 4-b — Publishing source → `AskUserQuestion`
+
+**Question**: "Is there a publishing deliverable (source-of-truth markup) for these screens?"
+- header: `Markup source`
+- options:
+  - `Enter paths` — source file per screen/state, as text
+  - `None` — no publishing deliverable for this feature
+  - `Pass — fill in later`
+
+With a source, `tdd-implement` wiring tasks **copy markup (tags, class combinations, visibility conditions) from it** and report where they deviate. A downstream project whose stylesheet matched the source byte for byte still shipped 4 of 5 screen defects because the markup was rewritten (a different tag, two mutually exclusive root classes at once, a visibility condition the source does not have). Neither unit tests nor passing E2E specs catch this — the hooks exist and the values are right; things just overlap and shift.
+
 ### Step 4.5 — Confirm design guide → `AskUserQuestion` [when material was given]
 
 Resolution check, then the summary ([interview-prompts.md § Step 4.5](references/interview-prompts.md)).
@@ -186,7 +203,7 @@ Settle the queue: remaining `pending` → `ask` or `deferred`; if any `ask` exis
 
 **Question**: "Ready to save the PRD. Confirm the path."
 - header: `Save PRD`
-- description: `Path: <worksDir>/<slug>/prd.md` + collected sections (Feature ✅ / Server ✅|⚠️Pass / <label> ✅|⚠️Pass|— / UI ✅|⚠️Pass / Design ✅|⚠️Pass)
+- description: `Path: <worksDir>/<slug>/prd.md` + collected sections (Feature ✅ / Server ✅|⚠️Pass / <label> ✅|⚠️Pass|— / UI ✅|⚠️Pass / Design ✅|⚠️Pass / Markup source ✅|—|⚠️Pass)
 - options:
   - `Save here`
   - `Change the slug` — work-directory name as text; file name stays `prd.md`
@@ -204,7 +221,8 @@ Then `mkdir -p <worksDir>/<slug>`, render the PRD from the state object per [prd
 | 2.5 → 3 | interface step done | |
 | 3 → 3.5 | scenario material given | confirmed (skipped on None/Pass) |
 | 3.5 → 4 | scenario step done | |
-| 4 → 4.5 | design material given | confirmed (skipped on Pass) |
+| 4 → 4-b | design step answered | |
+| 4-b → 4.5 | markup-source step answered | design confirmed (skipped when no design material) |
 | 4.5 → 6 | design step done | |
 | 6 | queue settled | path confirmed, file written |
 

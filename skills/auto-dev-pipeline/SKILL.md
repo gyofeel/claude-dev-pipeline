@@ -107,10 +107,12 @@ Then **Gate G1**.
 
 ### Gate G1 — PRD review
 
-- Metrics: `AC N · requirements N · server interface [yes/no/pass] · platform interface [yes/no/pass/n-a] · UI scenarios [yes/no/pass] · open questions N`
+- Metrics: `AC N · requirements N · server interface [yes/no/pass] · spec I/Fs unmatched N of N · platform interface [yes/no/pass/n-a] · UI scenarios [yes/no/pass] · publishing source [yes/no] · open questions N`
 - Checklist:
   - required slots (feature name · target screen · acceptance criteria) carry no `?unclear` marker
   - **each AC is implementation-sized** — one AC covering a whole screen bloats the TCs and tasks downstream
+  - **when an external interface spec was the input**: no unhandled unmatched row in `Spec I/F cross-check`, every copied spec value (URL · key basis · field) has a source, and when the spec lists both proxy and target URLs the one the web client calls is named — a requirement missed here never surfaces in the later AC/TC checks
+  - screens with a publishing deliverable have their paths in the `Publishing source` table — wiring tasks copy markup from it
 
 > A PRD is optional. A hand-written spec document is accepted as input (if it lacks the standard headers, only the AC list is confirmed with the user). In that case skip Step 1 and use that file as `**Spec:**`.
 
@@ -167,6 +169,8 @@ Then **Gate G3**.
   - **no `missing` in the AC coverage** — the `coverage-gate` table in the `tdd-implement` completion report; a `missing` AC is a defect
   - **unconnected new files/exports are intended** — `surface-gate` `reachability`; tests pass but the app cannot reach this code
   - **with `-no-e2e`, always read `surface-gate` `vanishedTokens`** — without an E2E run it is the only signal that existing specs broke silently
+  - **publishing source deviations have acceptable reasons** — places where markup differs from the source on screens that have one
+  - **after an upstream rewind**: the `> **Revised**:` lines at the top of the PRD/TC match the actual edits, and it is clear what changed against what was approved at G1/G2
 
 Confirm with:
 
