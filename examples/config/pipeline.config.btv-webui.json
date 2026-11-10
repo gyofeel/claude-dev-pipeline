@@ -82,6 +82,14 @@
     "ai": { "provider": "openai", "model": "gpt-5-mini", "apiKeyEnv": "OPENAI_API_KEY" }
   },
 
+  "style": {
+    "_comment": "gyofeel.md lives in the origin project's repo, not in this plugin. When you copy this file, use your own style file name or null.",
+    "codeRoots": ["app/", "server/", "shared/", "modules/"],
+    "extraCodeFiles": ["nuxt.config.js"],
+    "noiseSubjects": ["version up"],
+    "defaultStyle": "gyofeel.md"
+  },
+
   "approvalGates": [
     { "name": "new scoped style block", "check": "git diff $BASE..HEAD -- '*.vue' | grep -n '<style' || true" }
   ],

@@ -22,6 +22,9 @@ const run = (script, args, opts = {}) => {
 const defaults = JSON.parse(run('config-load.mjs', ['--defaults']).out);
 assert.equal(defaults.$schema, 'dev-pipeline/1');
 assert.equal(defaults.e2e.interaction, 'pointer');
+assert.equal(defaults.style.defaultStyle, null);
+assert.equal(defaults.style.codeRoots, null);
+assert.deepEqual(defaults.style.noiseSubjects, []);
 
 // temp repo with minimal config
 const tmp = mkdtempSync(path.join(os.tmpdir(), 'dp-selfcheck-'));
@@ -34,6 +37,14 @@ assert.equal(ok.ok, true, ok.errors.join());
 assert.equal(ok.resolved.ui.framework, 'react');
 assert.equal(ok.resolved.e2e.specsDir, path.join(tmp, 'e2e/specs'));
 assert.equal(run('config-load.mjs', ['--cwd', tmp, '--get', 'e2e.specsDir']).out.trim(), path.join(tmp, 'e2e/specs'));
+
+// invalid: style.noiseSubjects not string[]
+writeFileSync(path.join(tmp, '.agents/pipeline.config.json'), JSON.stringify({ $schema: 'dev-pipeline/1', commands: { unitTest: 'x' }, style: { noiseSubjects: [1], codeRoots: 'src/' } }));
+const badStyle = JSON.parse(run('config-load.mjs', ['--cwd', tmp, '--check']).out);
+assert.ok(badStyle.errors.includes('style.noiseSubjects must be string[]'), badStyle.errors.join('\n'));
+assert.ok(badStyle.errors.includes('style.codeRoots must be null or string[]'), badStyle.errors.join('\n'));
+writeFileSync(path.join(tmp, '.agents/pipeline.config.json'), JSON.stringify({ $schema: 'dev-pipeline/1', commands: { unitTest: 'x' }, style: { noiseSubjects: ['('] } }));
+assert.ok(JSON.parse(run('config-load.mjs', ['--cwd', tmp, '--check']).out).errors.some((e) => e.startsWith('style.noiseSubjects has an invalid regex')));
 
 // keyboard without an adapter file: only a warning, since init runs before e2e-init creates it
 writeFileSync(path.join(tmp, '.agents/pipeline.config.json'), JSON.stringify({ $schema: 'dev-pipeline/1', commands: { unitTest: 'x' }, e2e: { interaction: 'keyboard' } }));

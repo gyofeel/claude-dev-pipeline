@@ -10,10 +10,10 @@ Turns the unit-targeted TCs of a `tc.md` into code, test-first. The superpowers 
 ## Usage
 
 ```
-/dev-pipeline:tdd-implement <worksDir>/<slug>/tc.md
+/dev-pipeline:tdd-implement <worksDir>/<slug>/tc.md [--style <name>]
 ```
 
-`$ARGUMENTS` is the TC path. Missing → list `<worksDir>/*/tc.md` with `AskUserQuestion`. **The slug is the parent directory name.**
+`$ARGUMENTS` is the TC path, optionally followed by `--style <name>` (passed to I-4b). Missing → list `<worksDir>/*/tc.md` with `AskUserQuestion`. **The slug is the parent directory name.**
 
 ## Step 0 — Config
 
@@ -178,6 +178,7 @@ Inject:
    - `**Interfaces:**` = the UCP table's `Target (module#export)` column
    - every UCP row → at least one `expect` in Task Step 1
    - test names **`it('UCP-NN: <description>')`** — the exact `red-gate --test` target
+   - a task that rewrites the whole pattern of an existing file (code with no settled style to blend into) carries `**Full replacement:** <scope — reason>` in its body. Implementers never switch to a full rewrite without it
 5. **Wiring-task rules** (TCs answered `Implement here` at I-3b)
    - same title shape `### Task N: [TC-NN] <name>`. When one task owns several TCs, write the others as **bracketed** `[TC-NN]` in the body — a bare `TC-NN` counts only as a reference
    - **get RED from a component mount test** when the UI framework supports one — follow the mount-test convention in `constraintsFile` / `unitTest.testNaming` (do not assume a framework). "Does the button call the new API", "is the remaining count rendered" are mount-testable. That test is the task's `**Files:** Test:` and the red-gate steps are the normal ones
@@ -186,6 +187,20 @@ Inject:
    - when the PRD's `## Design Guide › Publishing source` lists a source file for the screen, put this in the brief verbatim: "Copy markup (tags, class combinations, visibility conditions) from the source `<file>`. Do not rewrite it. Report every place you differ from the source as `source deviation: <location> — <reason>`." A matching stylesheet does not help when the markup differs — hooks exist and values are right, so no automated check fails
 6. **`## Implementation owners`** = the I-3b decision table, verbatim
 7. **Checkbox shape** = [task-checkbox-contract.md](references/task-checkbox-contract.md)
+
+## I-4b — Style context [automatic]
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/style/plan-context.mjs" --plan <worksDir>/<slug>/<slug>-plan.md [--style <name>]
+```
+
+- Picks the runner's style file (`--style` → the plan's `**Style:**` line → the file listing `git config user.email` → `style.defaultStyle`), writes it to the plan header, and puts a `Read context` step before each task's first checkbox: the task's development layers (from `Files:`) and the matching style sections. Implementer and task reviewer both read it from the task brief.
+- `{"style":null,"skipped":true}` → no style file for this runner; go on. Mention `/dev-pipeline:style-extract` once in the I-8 report.
+- Exit 2 → show stderr. It names the missing piece: an unknown `--style`, a `style.defaultStyle` that does not exist, or a `**Style:**` line pointing at a deleted file. Fix the name or remove that line, then re-run.
+- `fullReplace` non-empty → one `AskUserQuestion` listing each task's scope and reason; a declined task loses its marker and goes back to `writing-plans` as an in-place change.
+- `unmapped` (paths in no layer) and `noLayerSection` go to the I-8 report. They never block.
+- Never copy style content into `## Global Constraints`: the task reviewer treats that section as binding requirements and would flag tendencies as violations.
+- Re-run it whenever tasks are added to the plan (upstream rewind); it is idempotent.
 
 ## I-5 — Traceability gate [automatic]
 
@@ -300,6 +315,11 @@ IDs in new comments (I-7 grep)
 Publishing source deviations (screens with a source only — collected from task reports)
    <file:line> — <reason>       ← "none" when empty
 
+Style (only when I-4b picked a style file — task reports' `style:` lines; I-4b report)
+   Task N — author — <reason>      ← Modify files where the author's style won, listed first
+   Task N — surrounding — <reason>
+   unmapped: <paths> / no style section: <layer ids>   ← or "no style file — /dev-pipeline:style-extract"
+
 Upstream rewinds (confirmed through the rewind procedure)
    Task N — <old requirement> → <new requirement> / PRD <places> · TC <places>
 
@@ -332,6 +352,7 @@ Next — E2E spec batch generation
 
 - `../tc-extract/SKILL.md` — produces the input (new-implementation mode)
 - `../e2e-test/SKILL.md` — screen verification after implementation
+- `../style-extract/SKILL.md` — builds the layer catalog and the style files I-4b reads
 - `../auto-dev-pipeline/SKILL.md` — 4-stage orchestrator containing this skill
 - `${CLAUDE_PLUGIN_ROOT}/scripts/red-gate.mjs` — RED/GREEN verification + evidence ledger
 - `${CLAUDE_PLUGIN_ROOT}/scripts/surface-gate.mjs` — reachability (unconnected new files/exports) + vanished tokens (old identifiers left in existing specs)

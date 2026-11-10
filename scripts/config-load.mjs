@@ -79,6 +79,15 @@ export const DEFAULTS = {
         screenCatalog: null,
         ai: { provider: 'none', model: null, apiKeyEnv: null }
     },
+    style: {
+        layersDir: '.agents/layers',        // catalog.json + one doc per development layer
+        stylesDir: '.agents/styles',        // one style file per developer
+        defaultStyle: null,                 // file in stylesDir used when no email matches; null → no style step
+        codeRoots: null,                    // null → every tracked file; e.g. ["src/","server/"]
+        codeExtensions: ['js', 'mjs', 'cjs', 'ts', 'jsx', 'tsx', 'vue', 'svelte', 'css', 'scss'],
+        extraCodeFiles: [],                 // tracked files outside codeRoots that still count, e.g. a framework config
+        noiseSubjects: []                   // regexes (case-insensitive) for commit subjects that are never style evidence
+    },
     approvalGates: [],
     platformInterface: { enabled: false, label: 'platform bridge' }
 };
@@ -96,7 +105,9 @@ const PATH_KEYS = [
     'e2e.kitDir',
     'e2e.adapterModule',
     'e2e.resultsJson',
-    'e2e.screenCatalog'
+    'e2e.screenCatalog',
+    'style.layersDir',
+    'style.stylesDir'
 ];
 
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -191,6 +202,19 @@ function validate(cfg, root, errors, warnings) {
                 errors.push(`e2e.interaction is "keyboard" but ${cfg.e2e.adapterModule} does not define findAndEnter (the template's commented example does not count)`);
         }
     }
+    const style = cfg.style ?? {};
+    const isStrings = (v) => Array.isArray(v) && v.every((x) => typeof x === 'string');
+    if (style.codeRoots !== null && !isStrings(style.codeRoots)) errors.push('style.codeRoots must be null or string[]');
+    for (const k of ['codeExtensions', 'extraCodeFiles', 'noiseSubjects'])
+        if (!isStrings(style[k])) errors.push(`style.${k} must be string[]`);
+    if (style.defaultStyle !== null && typeof style.defaultStyle !== 'string') errors.push('style.defaultStyle must be null or a file name');
+    if (isStrings(style.noiseSubjects))
+        for (const re of style.noiseSubjects)
+            try {
+                new RegExp(re, 'i');
+            } catch {
+                errors.push(`style.noiseSubjects has an invalid regex: ${re}`);
+            }
     if (cfg.e2e?.consoleAllowedMethods !== null && !Array.isArray(cfg.e2e.consoleAllowedMethods))
         errors.push('e2e.consoleAllowedMethods must be null or string[]');
 }

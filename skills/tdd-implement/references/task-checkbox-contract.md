@@ -36,7 +36,7 @@ Placeholders: `<worksDir>`, `<slug>`, `<scope>` from config / pipeline state; `<
 
 - [ ] `<commands.format> <changed files>` (only if `commands.format` is set) && `git add <changed files>`
 - [ ] `git commit -F .superpowers/sdd/<plan-basename>/commit-msg-task-N.txt`
-- [ ] Upstream check — one line in the report: `upstream conflict: none` or `upstream conflict: yes — <what flipped> / PRD <requirement · AC> / TC <TC · UCP · CP> / unit tests <expectation locations>`. For a screen with a publishing source, also `source deviation: none | <location — reason>`
+- [ ] Upstream check — one line in the report: `upstream conflict: none` or `upstream conflict: yes — <what flipped> / PRD <requirement · AC> / TC <TC · UCP · CP> / unit tests <expectation locations>`. For a screen with a publishing source, also `source deviation: none | <location — reason>`. When the task has a `Read context` step, also `style: surrounding | author — <reason>` (whose style the changed code follows: the surrounding code's or the runner's style file)
 ````
 
 Rules:

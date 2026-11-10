@@ -102,6 +102,17 @@ Keys marked **required** must be present. Everything else has the default shown.
     }
   },
 
+  // ── Developer style (style-extract, tdd-implement I-4b) ──
+  "style": {
+    "layersDir": ".agents/layers",      // catalog.json + one doc per development layer (style-extract drafts it)
+    "stylesDir": ".agents/styles",      // one style file per developer, committed to the project repo
+    "defaultStyle": null,               // file name in stylesDir used when no file lists the runner's git email; null → no style step
+    "codeRoots": null,                  // null → every tracked file; e.g. ["src/","server/"] limits the catalog check and evidence
+    "codeExtensions": ["js","mjs","cjs","ts","jsx","tsx","vue","svelte","css","scss"],
+    "extraCodeFiles": [],               // tracked files outside codeRoots that still count (e.g. "vite.config.js")
+    "noiseSubjects": []                 // case-insensitive regexes; commits whose subject matches are never style evidence (e.g. "^bump version")
+  },
+
   // ── Gates ─────────────────────────────────────────────────
   "approvalGates": [],                  // [{ "name": "new scoped style", "check": "git diff $BASE..HEAD -- '*.vue' | grep -n '<style' || true" }]
                                         // $BASE (merge-base with the default branch) is exported when checks run
@@ -121,6 +132,7 @@ Keys marked **required** must be present. Everything else has the default shown.
 - `commands.*` strings are executed with `bash -c` from the repo root. A skill appends arguments (a spec path, a test file) after a space.
 - `ui.framework: "auto"` is resolved from `package.json` dependencies (vue/nuxt → vue, react/next → react, svelte → svelte, @angular → angular, else other). The resolved value is a one-line hint for agents, nothing more.
 - `ui.stateBridge.globalExpr` is the only way the pipeline reads app state. Agents write state paths as `<store>.<field>`; the spec compiles them to `<globalExpr>?.<store>?.<field>`. The runtime probe (`scripts/state-probe.mjs`) evaluates each path once against the running app and rejects paths that resolve to `undefined`.
+- `style` is optional. Without a style file the style scripts change nothing, and they run with these defaults even when `pipeline.config.json` is missing.
 - `e2e.interaction: "keyboard"` requires `adapter.findAndEnter`. `--check` only warns while the adapter file does not exist yet (init runs before e2e-init), and errors once the file exists without an uncommented `findAndEnter` — so `e2e-test` stops until the project implements it.
 
 ## Minimal valid config

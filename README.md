@@ -40,9 +40,11 @@ Each stage can also run alone: `/dev-pipeline:prd-extract`, `/dev-pipeline:tc-ex
 
 ```
 skills/            auto-e2e-pipeline · auto-dev-pipeline · prd-extract · tc-extract · tdd-implement · e2e-test · init · e2e-init
+                   style-extract
 agents/            ui-selector-extractor · spec-scanner · fixture-advisor · screen-context · navigation-advisor
                    verification-advisor · spec-writer · spec-reviewer · spec-runtime-validator
 scripts/           config-load · spec-template (assembler) · spec-lint · nav-plan-schema · state-probe · red-gate
+                   style/ (resolve-layer · collect · plan-context)
 kit/               runtime copied into your project by e2e-init: api mocker, runtime collector, AI analyzer (fetch-only,
                    OpenAI / Anthropic / none), report dashboard, diagnostics, default adapter
 references/        config schema · adapter contract · navigation plan schema · agent I/O contracts
@@ -58,6 +60,10 @@ examples/          a full config and a keyboard-navigation adapter from the plug
 ```
 
 Optional switches (all default off): `ui.stateBridge` enables State checkpoints and the runtime probe; `e2e.interaction: "keyboard"` routes navigation through your adapter's `findAndEnter`; `e2e.softTrack` turns assertions that depend on an unavailable runtime into recorded-but-non-failing checks; `approvalGates[]` adds project-specific human approvals to the implementation gate. Full schema: `references/config-schema.md`.
+
+## Developer style (optional)
+
+`/dev-pipeline:style-extract` reads your commits from before you started using AI tools and writes `.agents/styles/<name>.md`: how you tend to write each development layer (UI, state, data access, …), with real diff excerpts and reasons. The first run also drafts the project's layer catalog (`.agents/layers/`), which the whole team shares. `tdd-implement` then points every plan task at your style file and the task's layers as context, never as rules: gates, the pipeline contract and project rules still win, and existing files follow the surrounding code first. No style file, no change. Settings: the `style` section of the config.
 
 ## Adapter
 
