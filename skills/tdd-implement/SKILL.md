@@ -193,10 +193,10 @@ Inject:
 TC=<worksDir>/<slug>/tc.md
 PLAN=<worksDir>/<slug>/<slug>-plan.md
 # TC side: unit TCs / E2E-manual TCs
-awk '/^### TC-/{tc=$2; sub(/:$/,"",tc)}
-     /^\| \*\*Unit target\*\*/{ print tc, ($0 ~ /\(none\)/ ? "E" : "U") }' "$TC" | sort -u > /tmp/tc.kinds
-awk '$2=="U"{print $1}' /tmp/tc.kinds > /tmp/tc.unit
-awk '$2=="E"{print $1}' /tmp/tc.kinds > /tmp/tc.e2e
+awk '/^### TC-/{tc=$(2); sub(/:$/,"",tc)}
+     /^\| \*\*Unit target\*\*/{ print tc, ($(0) ~ /\(none\)/ ? "E" : "U") }' "$TC" | sort -u > /tmp/tc.kinds
+awk '$(2)=="U"{print $(1)}' /tmp/tc.kinds > /tmp/tc.unit
+awk '$(2)=="E"{print $(1)}' /tmp/tc.kinds > /tmp/tc.e2e
 # plan side: bracketed [TC-NN] in tasks + TCs in the owners table
 grep -oE '\[TC-[0-9]+\]' "$PLAN" | tr -d '[]' | sort -u > /tmp/plan.ids
 sed -n '/^## Implementation owners/,/^## [^I]/p' "$PLAN" | grep -oE '^\| *TC-[0-9]+' | grep -oE 'TC-[0-9]+' | sort -u > /tmp/owner.ids
@@ -263,7 +263,7 @@ Then the report-only gates (they never block):
 ```bash
 # ticket/artifact IDs in new comments — <issueKeyPattern> from config; spec IDs that happen to match it can stay
 git diff -U0 <base>..HEAD -- '*.js' '*.mjs' '*.cjs' '*.ts' '*.jsx' '*.tsx' '*.vue' '*.svelte' ':!*.test.*' ':!*.spec.*' \
-  | awk '/^\+\+\+ b\//{f=substr($0,7)} /^\+[[:space:]]*(\/\/|\*|\/\*|<!--|#)/ && /(<issueKeyPattern>|AC-[0-9]+|TC-[0-9]+|UCP-[0-9]+|Task ?[0-9]+|[Rr]equirement ?[0-9]+)/{print f": "substr($0,2)}' \
+  | awk '/^\+\+\+ b\//{f=substr($(0),7)} /^\+[[:space:]]*(\/\/|\*|\/\*|<!--|#)/ && /(<issueKeyPattern>|AC-[0-9]+|TC-[0-9]+|UCP-[0-9]+|Task ?[0-9]+|[Rr]equirement ?[0-9]+)/{print f": "substr($(0),2)}' \
   | grep . || echo "no IDs in new comments"
 node "${CLAUDE_PLUGIN_ROOT}/scripts/surface-gate.mjs" --base <base>
 node "${CLAUDE_PLUGIN_ROOT}/scripts/coverage-gate.mjs" --prd <worksDir>/<slug>/prd.md --tc <worksDir>/<slug>/tc.md --plan <worksDir>/<slug>/<slug>-plan.md

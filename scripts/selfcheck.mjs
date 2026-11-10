@@ -35,8 +35,14 @@ assert.equal(ok.resolved.ui.framework, 'react');
 assert.equal(ok.resolved.e2e.specsDir, path.join(tmp, 'e2e/specs'));
 assert.equal(run('config-load.mjs', ['--cwd', tmp, '--get', 'e2e.specsDir']).out.trim(), path.join(tmp, 'e2e/specs'));
 
-// invalid: keyboard without adapter
+// keyboard without an adapter file: only a warning, since init runs before e2e-init creates it
 writeFileSync(path.join(tmp, '.agents/pipeline.config.json'), JSON.stringify({ $schema: 'dev-pipeline/1', commands: { unitTest: 'x' }, e2e: { interaction: 'keyboard' } }));
+const noAdapter = run('config-load.mjs', ['--cwd', tmp, '--check']);
+assert.equal(noAdapter.code, 0);
+assert.ok(JSON.parse(noAdapter.out).warnings.some((e) => e.includes('findAndEnter')));
+// keyboard with an adapter that lacks findAndEnter: an error
+mkdirSync(path.join(tmp, 'e2e'), { recursive: true });
+writeFileSync(path.join(tmp, 'e2e/e2e.adapter.js'), '// export const findAndEnter = async () => {};\nexport const press = async () => {};\n');
 const bad = run('config-load.mjs', ['--cwd', tmp, '--check']);
 assert.equal(bad.code, 1);
 assert.ok(JSON.parse(bad.out).errors.some((e) => e.includes('findAndEnter')));
