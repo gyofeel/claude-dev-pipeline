@@ -32,7 +32,7 @@ Pick the mode, then read only its references. Batch mode never uses the intervie
 node "${CLAUDE_PLUGIN_ROOT}/scripts/config-load.mjs" --check
 ```
 
-- Config missing or invalid → stop: "Run `/dev-pipeline:init` first." Do not improvise paths.
+- Config missing or invalid → apply "Missing config" in the shared contract's User-facing output (`../auto-e2e-pipeline/references/shared-contract.md`), then re-run this step. Do not improvise paths.
 - `e2e.kitDir` does not exist (or `<kitDir>/VERSION` missing) → stop: "Run `/dev-pipeline:e2e-init` to install the runtime kit." Generated specs import the kit; without it nothing runs.
 - `cmp -s <kitDir>/VERSION "${CLAUDE_PLUGIN_ROOT}/kit/VERSION"` fails (the project's kit is another version) → stop: "Run `/dev-pipeline:e2e-init --upgrade`." The assembler writes imports for this plugin's kit.
 - `commands.e2eRun` null (config-load warns) → stop: "Install Playwright and set `commands.e2eRun`." Nothing can run the specs.

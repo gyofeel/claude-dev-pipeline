@@ -30,7 +30,7 @@ No PRD → take the feature scope and the ACs from the conversation and go on.
 node "${CLAUDE_PLUGIN_ROOT}/scripts/config-load.mjs" --check
 ```
 
-Missing or invalid → stop: "Run `/dev-pipeline:init` first." Every path, command and capability below comes from the resolved config (`worksDir`, `language`, `locale`, `ui.*`, `unitTest.*`, `e2e.*`, `source.*`). Headings and field names follow `${CLAUDE_PLUGIN_ROOT}/kit/artifact-labels.mjs` for `locale`; talk to the user in `language` and shape every message by the contract's User-facing output (`../auto-e2e-pipeline/references/shared-contract.md`). Two capability facts matter now:
+Missing or invalid → apply "Missing config" in the shared contract's User-facing output (`../auto-e2e-pipeline/references/shared-contract.md`), then re-run this step. Every path, command and capability below comes from the resolved config (`worksDir`, `language`, `locale`, `ui.*`, `unitTest.*`, `e2e.*`, `source.*`). Headings and field names follow `${CLAUDE_PLUGIN_ROOT}/kit/artifact-labels.mjs` for `locale`; talk to the user in `language` and shape every message by the contract's User-facing output (`../auto-e2e-pipeline/references/shared-contract.md`). Two capability facts matter now:
 - `ui.stateBridge` is `null` → the `State` checkpoint type is unavailable. Propose no State rows; say so once in the summary.
 - `unitTest.excludedAreas[]` is quoted verbatim when classifying the unit layer.
 

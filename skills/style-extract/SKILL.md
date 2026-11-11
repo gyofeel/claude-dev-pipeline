@@ -25,7 +25,7 @@ Builds one developer's style file from commit history plus a short confirmation.
 | `<style.stylesDir>/.work/<name>/` | working files, never committed: `evidence.json`, `hypotheses.md`, `draft.md` |
 | `<style.stylesDir>/<name>.md` | the result |
 
-`style.*` comes from `.agents/pipeline.config.json` (see the plugin's `references/config-schema.md`). Read it once:
+`style.*` comes from `.agents/pipeline.config.json` (see the plugin's `references/config-schema.md`). Read it once (a missing config → apply "Missing config" in the shared contract's User-facing output, `../auto-e2e-pipeline/references/shared-contract.md`, then read again):
 
 ```bash
 node "${CLAUDE_PLUGIN_ROOT}/scripts/config-load.mjs" --get style || node "${CLAUDE_PLUGIN_ROOT}/scripts/config-load.mjs" --defaults

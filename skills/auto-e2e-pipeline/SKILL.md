@@ -33,7 +33,7 @@ This skill reads the state, calls the next node, and opens the gate when the nod
 node "${CLAUDE_PLUGIN_ROOT}/scripts/config-load.mjs"
 ```
 
-Missing or invalid → stop: "No `.agents/pipeline.config.json`. Run `/dev-pipeline:init` first." Use the resolved `worksDir`, `e2e.specsDir`, `e2e.kitDir`, `issueKeyPattern`, `branchPrefix`, `language`, `locale`. Talk to the user in `language` and shape every message by the contract's User-facing output (where we are first, one next action last). Then route (contract, Routing).
+Missing or invalid → apply "Missing config" in the shared contract's User-facing output, then re-run this step. Use the resolved `worksDir`, `e2e.specsDir`, `e2e.kitDir`, `issueKeyPattern`, `branchPrefix`, `language`, `locale`. Talk to the user in `language` and shape every message by the contract's User-facing output (where we are first, one next action last). Then route (contract, Routing).
 
 ## Nodes
 

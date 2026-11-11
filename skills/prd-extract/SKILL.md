@@ -27,7 +27,7 @@ The artifact is `<worksDir>/<slug>/prd.md`. Its format is [references/prd-format
 node "${CLAUDE_PLUGIN_ROOT}/scripts/config-load.mjs"
 ```
 
-Missing config → stop: "No `.agents/pipeline.config.json`. Run `/dev-pipeline:init` first." Keep `worksDir`, `language`, `locale`, `issueKeyPattern`, `platformInterface`, `e2e.fixturesDir`, `e2e.specsDir`, `ui.selectorPriority`.
+Missing config → apply "Missing config" in the shared contract's User-facing output (`../auto-e2e-pipeline/references/shared-contract.md`), then re-run this step. Keep `worksDir`, `language`, `locale`, `issueKeyPattern`, `platformInterface`, `e2e.fixturesDir`, `e2e.specsDir`, `ui.selectorPriority`.
 
 Talk to the user in `language` and shape every message by the contract's User-facing output (`../auto-e2e-pipeline/references/shared-contract.md`).
 

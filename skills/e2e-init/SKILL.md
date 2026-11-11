@@ -15,7 +15,7 @@ Arguments: `--upgrade` (replace an existing kit after showing a diff); `--from-i
 node "${CLAUDE_PLUGIN_ROOT}/scripts/config-load.mjs" --check && node "${CLAUDE_PLUGIN_ROOT}/scripts/config-load.mjs"
 ```
 
-Missing or invalid → stop: "Run `/dev-pipeline:init` first." Read from the resolved JSON: `language`, `e2e.kitDir`, `e2e.adapterModule`, `e2e.specsDir`, `e2e.fixturesDir`, `e2e.resultsJson`, `e2e.baseUrl`, `e2e.healthUrlPath`, `e2e.interaction`, `commands.dev`, `commands.e2eRun`. Show any `warnings[]` (an `e2e.ai` key left over from 0.3 is one: tell the user to delete it).
+Missing or invalid → apply "Missing config" in the shared contract's User-facing output (`../auto-e2e-pipeline/references/shared-contract.md`), then re-run this step. Read from the resolved JSON: `language`, `e2e.kitDir`, `e2e.adapterModule`, `e2e.specsDir`, `e2e.fixturesDir`, `e2e.resultsJson`, `e2e.baseUrl`, `e2e.healthUrlPath`, `e2e.interaction`, `commands.dev`, `commands.e2eRun`. Show any `warnings[]` (an `e2e.ai` key left over from 0.3 is one: tell the user to delete it).
 
 `commands.e2eRun` null → warn that Playwright was not detected; continue (the kit can be installed ahead of the dependency).
 

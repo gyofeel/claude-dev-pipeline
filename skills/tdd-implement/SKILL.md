@@ -40,7 +40,7 @@ No argument → list `<worksDir>/*/tc.md` and `<worksDir>/*/*-plan.md` and let t
 node "${CLAUDE_PLUGIN_ROOT}/scripts/config-load.mjs" --check
 ```
 
-Missing or invalid → stop: "Run `/dev-pipeline:init` first." Below uses `worksDir`, `branchPrefix`, `language`, `locale`, `commands.*`, `unitTest.*`, `constraintsFile`, `approvalGates`, `issueKeyPattern`. Plan markers (`### Task N`, characterization, RED exempt) follow `${CLAUDE_PLUGIN_ROOT}/kit/artifact-labels.mjs` for `locale`. Talk to the user in `language` and shape every message by the contract's User-facing output (`../auto-e2e-pipeline/references/shared-contract.md`).
+Missing or invalid → apply "Missing config" in the shared contract's User-facing output (`../auto-e2e-pipeline/references/shared-contract.md`), then re-run this step. Below uses `worksDir`, `branchPrefix`, `language`, `locale`, `commands.*`, `unitTest.*`, `constraintsFile`, `approvalGates`, `issueKeyPattern`. Plan markers (`### Task N`, characterization, RED exempt) follow `${CLAUDE_PLUGIN_ROOT}/kit/artifact-labels.mjs` for `locale`. Talk to the user in `language` and shape every message by the contract's User-facing output (`../auto-e2e-pipeline/references/shared-contract.md`).
 
 superpowers must be enabled:
 

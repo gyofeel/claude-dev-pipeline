@@ -5,7 +5,7 @@
 Paths come from `.agents/pipeline.config.json` (`worksDir`, `e2e.specsDir`, `e2e.kitDir`, `branchPrefix`, `issueKeyPattern`, `language`, `locale`). Below, `<worksDir>` etc. stand for the resolved values and `<plugin>` for `${CLAUDE_PLUGIN_ROOT}`.
 
 ## Contents
-- User-facing output
+- User-facing output (incl. Missing config)
 - Graph principle
 - Nodes, gates and deterministic checks
 - Reading check output
@@ -29,6 +29,12 @@ Every skill follows this, standalone or in a pipeline.
 
   then the resume command alone in a code block.
 - **Resume hint, once.** At the first handoff of a run (G1), add one plain sentence without a code block: running the same router with no argument always picks up where the run stopped. Do not repeat it at later handoffs.
+- **Missing config.** No `.agents/pipeline.config.json` yet (the check or load says so): ask one `AskUserQuestion`, bilingual because no `language` is known yet. Never tell the user to run init and stop.
+  - Question: "This project is not set up for dev-pipeline yet. Set it up now? / 이 프로젝트는 아직 dev-pipeline 설정이 없습니다. 지금 설정할까요?" (header `Setup`)
+  - `Set up now / 지금 설정` — "Runs setup (about 2 minutes of questions), then continues with what you asked. / 설정 질문(2분 정도)을 마친 뒤 요청하신 작업을 이어서 진행합니다."
+  - `Not now / 나중에` — "Stops here. Run /dev-pipeline:init whenever you are ready. / 여기서 멈춥니다. 준비되면 /dev-pipeline:init 을 실행하세요."
+
+  Yes → `Skill: dev-pipeline:init --from-skill`, then continue at the calling skill's own config step, keeping the user's original arguments. If the config still fails after one init round, show the remaining `errors[]` and stop; never call init a second time in the same request. No → stop with the second option's text. A config that exists but fails `--check` → show `errors[]`, then call init the same way (it opens its settings fix-up).
 
 ## Graph principle
 

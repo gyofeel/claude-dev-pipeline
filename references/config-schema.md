@@ -1,6 +1,6 @@
 # Pipeline config — `.agents/pipeline.config.json`
 
-Every skill and agent in this plugin reads project facts from this one file at the repository root. Skills never hardcode paths, commands, or framework details. If the file is missing, a skill stops and tells the user to run `/dev-pipeline:init`.
+Every skill and agent in this plugin reads project facts from this one file at the repository root. Skills never hardcode paths, commands, or framework details. If the file is missing, a skill offers to run `/dev-pipeline:init` in place and continues afterwards.
 
 Load it with the plugin script (resolves relative paths against the repo root, fills defaults, validates):
 

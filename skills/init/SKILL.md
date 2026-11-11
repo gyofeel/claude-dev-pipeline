@@ -1,6 +1,6 @@
 ---
 name: init
-description: Use when a project has no `.agents/pipeline.config.json` yet, when another dev-pipeline skill stops with "config missing", when the user wants to change project facts the pipeline relies on (test command, spec directory, state bridge, interaction mode, language), or when the user is unsure what to do next or wants to resume work — init is the hub that shows the settings and offers the next step.
+description: Start here — sets up the dev-pipeline for this project, then asks what to do next. Use when there is no `.agents/pipeline.config.json` yet, another dev-pipeline skill reports config missing, the user wants to change project facts (test command, spec directory, state bridge, interaction mode, language), is unsure what to do next or wants to resume work, or says "set up dev-pipeline", "start the pipeline", "first time using dev-pipeline", "파이프라인 설정", "dev-pipeline 시작", "dev-pipeline 처음 써 봐", "개발 파이프라인 쓰고 싶어".
 ---
 
 # init — create or update the pipeline config
@@ -10,6 +10,10 @@ Every other skill in this plugin reads `.agents/pipeline.config.json` and refuse
 Schema and every key: [config-schema.md](../../references/config-schema.md). Read it before writing the file.
 
 **Talking to the user.** From Step 0 on, every message and question is in the chosen `language` and follows "User-facing output" in [shared-contract.md](../auto-e2e-pipeline/references/shared-contract.md). Korean copy quoted below is used as written; the English text of the other questions is the meaning to convey, said in natural words. Each option description tells the user what changes for them, so they can judge the choice without knowing the config.
+
+**Arguments:** `--from-skill` (below). It is not a request to change a setting, so the hub's "invocation asks to change something" check ignores it.
+
+**Called from another skill** (argument `--from-skill`, because that skill found no config and the user said yes): run Steps 0 to 6 as usual, but at Step 7 print only the summary, skip the "what next" question and the first-feature question, and return to the caller, which continues what the user asked. If Step 6 stops on an error, end with that error as usual. In the hub (config exists, valid), `--from-skill` means the caller found it invalid: go to **Change settings**; once the config validates, return to the caller without the hub question. Under `--from-skill`, `Cancel` or a config that still fails `--check` returns to the caller with the `errors[]` and never shows the hub or the "what next" question.
 
 ## Step 0 — Language (before anything else is printed)
 
@@ -277,7 +281,7 @@ init — config saved (.agents/pipeline.config.json)
 
 The language line in Korean reads, e.g., "대화·리포트: 한국어 / 문서 제목: 영어".
 
-Then one `AskUserQuestion`, in `language`:
+With `--from-skill`, stop after the summary and return to the caller. Otherwise one `AskUserQuestion`, in `language`:
 
 **Question**: "설정을 마쳤습니다. 이제 무엇을 할까요?" / "Setup is done. What would you like to do next?"
 - header: `다음 단계` / `Next`
