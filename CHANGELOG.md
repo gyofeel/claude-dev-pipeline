@@ -31,6 +31,7 @@ Pipeline rebuilt as nodes and gates, rule-based E2E verdicts with a result repor
 - `e2e-init gitignore` adds `<worksDir>/**/e2e-loops.json`, the results directory and `test-results/` to `.gitignore`. Default `source.extensions` also covers `.svelte`, `.mjs`, `.cjs`. A fixture that answers with an error status on purpose no longer counts as an API error in `real-api` mode.
 - Kit: `fixture.js`, `report/`, `artifact-labels.mjs`, `utils/{checkpoint,runtime-filter,api-usage,archive-reporter}.mjs`, `utils/watch-helper.js` (Observe checkpoints for short-lived elements), per-glob mock hit counts.
 - Example app with an end-to-end Playwright regression under `tests/e2e-example/`.
+- `state.json` records `baseCommit` when a run starts, and `surface-gate` finds the base itself (`--state`, else merge-base with origin/HEAD, main, master or develop) and reports it, so G3 works whatever the default branch is called. The E2E node offers to create fixtures a TC names but nobody wrote, flags a unit runner that also collects the E2E specs, and lists uncommitted E2E files before finishing the branch.
 
 Unchanged: developer style injection from 0.3.0 (`style-extract`, the `style` config section); `tdd-implement` now reads the style file at PLAN step 4.
 

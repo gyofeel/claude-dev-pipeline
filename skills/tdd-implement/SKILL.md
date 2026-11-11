@@ -149,9 +149,10 @@ Plugins can be enabled per project, so user, project and project-local settings 
 
 2. **Final gate** — after SDD's final review and **before the workspace is deleted and before finishing**; afterwards the Rulings in `progress.md` are gone.
    ```bash
-   B=<branch start commit>; W=<worksDir>/<slug>
+   W=<worksDir>/<slug>
    node "${CLAUDE_PLUGIN_ROOT}/scripts/red-gate.mjs" --phase green --plan $W/<slug>-plan.md --all    # regression + ledger audit
-   node "${CLAUDE_PLUGIN_ROOT}/scripts/surface-gate.mjs" --base $B                                    # reachability · vanished tokens
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/surface-gate.mjs" --state $W/state.json                       # reachability · vanished tokens
+   B=<surface-gate output "base">
    node "${CLAUDE_PLUGIN_ROOT}/scripts/coverage-gate.mjs" --prd $W/prd.md --tc $W/tc.md --plan $W/<slug>-plan.md
    BASE=$B <approvalGates[].check>                                                                    # each entry
    git diff -U0 $B..HEAD -- '*.js' '*.mjs' '*.cjs' '*.ts' '*.jsx' '*.tsx' '*.vue' '*.svelte' ':!*.test.*' ':!*.spec.*' \
@@ -161,6 +162,7 @@ Plugins can be enabled per project, so user, project and project-local settings 
    - `--all` runs every project with two workers against the `unitTest.knownFailuresFile` baseline. If you fix a pre-existing failure, remove it from the baseline.
    - `failureClass` `RUN_INCOMPLETE` (`routeTo: controller:rerun`) → the suite did not finish; re-run before claiming no regression.
    - `NOT_COLLECTED` with `--all` → the runner collected zero tests; fix `commands.unitTest` / `unitTest.testFileGlobs` before claiming no regression.
+   - surface-gate finds the base itself (`baseSource` says how). `ok: false` with a base error → ask the human for the branch start commit and re-run with `--base <ref>`. Never guess a branch name.
    - coverage-gate: read `ok` first. `ok: false` → do not open G3; report `error`.
    - `<issueKeyPattern>` goes into POSIX `grep -E`: write `\d` as `[0-9]`.
    - `audit.violations` (GREEN without an earlier RED, tests whose last record failed) and `audit.tasksWithoutEvidence` go to G3 as they are.

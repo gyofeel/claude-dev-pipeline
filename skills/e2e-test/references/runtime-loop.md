@@ -19,6 +19,7 @@ Does **not** consume an iteration.
 
 - First ENV: settle (re-check `GET <e2e.baseUrl><e2e.healthUrlPath>` or wait 3 s) and retry once automatically. A first run after a dependency change may spend minutes on a cold build; that is not a failure.
 - Still ENV: stop the loop and ask.
+- The tool call was denied by the permission system → not an environment fault and not retried automatically. Ask the same question at once.
 
 **Question**: "The run failed for an environment reason, not the spec."
 - header: `Environment`

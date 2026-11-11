@@ -56,7 +56,7 @@ The deterministic checks are already in the node's output. The router does not t
 | G1 | `node <plugin>/scripts/coverage-gate.mjs --prd <worksDir>/<slug>/prd.md --lint` |
 | G2 | `node <plugin>/scripts/coverage-gate.mjs --prd <worksDir>/<slug>/prd.md --tc <worksDir>/<slug>/tc.md --lint` |
 | G3a | `node <plugin>/scripts/coverage-gate.mjs --prd <worksDir>/<slug>/prd.md --tc <worksDir>/<slug>/tc.md --plan <worksDir>/<slug>/<slug>-plan.md --lint` |
-| G3 (dev) | `node <plugin>/scripts/red-gate.mjs --phase green --plan <worksDir>/<slug>/<slug>-plan.md --all` (regression + ledger audit) · `node <plugin>/scripts/surface-gate.mjs --base <branch start commit>` · `node <plugin>/scripts/coverage-gate.mjs --prd … --tc … --plan …` |
+| G3 (dev) | `node <plugin>/scripts/red-gate.mjs --phase green --plan <worksDir>/<slug>/<slug>-plan.md --all` (regression + ledger audit) · `node <plugin>/scripts/surface-gate.mjs --state <worksDir>/<slug>/state.json` · `node <plugin>/scripts/coverage-gate.mjs --prd … --tc … --plan …` |
 
 If `ok` is `false`, `lint.errors` is non-empty, or `uncovered` is non-empty, **do not open the gate.** Re-run the node.
 
@@ -202,6 +202,7 @@ Path: `<worksDir>/<slug>/state.json` (gitignored; the `init` skill adds the rule
   "slug": "PROJ-1234-list-filter",
   "issue": "PROJ-1234",
   "createdAt": "2026-10-12T07:00:00.000Z",
+  "baseCommit": "8cfcdb0",
   "options": [],
   "stages": [
     { "name": "prd-extract", "status": "done", "artifact": "<worksDir>/PROJ-1234-list-filter/prd.md", "confirmedAt": "2026-10-12T07:20:00.000Z" },
@@ -217,6 +218,7 @@ Path: `<worksDir>/<slug>/state.json` (gitignored; the `init` skill adds the rule
 - `createdAt` and `confirmedAt` are UTC ISO strings (`new Date().toISOString()`).
 - `artifact` values are repo-relative paths as on disk (not placeholders).
 - `issue`: the issue key or `null`.
+- `baseCommit`: `git rev-parse --short HEAD` when the state file is created. G3 measures the run's changes from it (`surface-gate --state`), so nobody has to guess the default branch.
 - Imported runs add `"source": "external"` and `"sourcePath"` (the PRD path the user gave). Runs the PRD node started carry neither.
 - `selectorsRefreshed`: `true` once auto-dev-pipeline's E2E node has corrected the predicted selectors (so it is not done twice); absent before.
 - Create the directory if missing: `mkdir -p <worksDir>/<slug>`.

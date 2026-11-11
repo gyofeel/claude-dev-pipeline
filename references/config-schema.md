@@ -138,7 +138,7 @@ Keys marked **required** must be present. Everything else has the default shown.
     "nonProductionPaths": []            // extra prefixes excluded from production code (tooling, docs, scripts)
   },
   "approvalGates": [],                  // [{ "name": "new scoped style", "check": "git diff $BASE..HEAD -- '*.vue' | grep -n '<style' || true" }]
-                                        // $BASE (merge-base with the default branch) is exported when checks run
+                                        // $BASE (the base surface-gate reports: the run's start commit) is exported when checks run
                                         // listed in the implementation-review gate; a non-empty check output needs explicit user approval
 
   // ── PRD interview ─────────────────────────────────────────

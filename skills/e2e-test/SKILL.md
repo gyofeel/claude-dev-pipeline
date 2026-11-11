@@ -47,7 +47,7 @@ Feature switches that shape the questions and the generated code:
 | `ui.stateBridge` = null | the **State** checkpoint type is not offered; a State row in a TC stops the assembler |
 | `ui.stateBridge.focusExpr` | the value Focus checkpoints read; unset → the focused element's opening tag |
 | `e2e.interaction` = `keyboard` | navigation steps compile to `adapter.press` / `adapter.findAndEnter`; the config check already guarantees the adapter exports `findAndEnter` |
-| `e2e.bootFixtures` | URL globs the app needs to boot. A spec whose fixtures map lists one of them runs isolated (unmatched data requests stubbed, `testMode: 'fixture'`); otherwise it runs against the real API (`testMode: 'real-api'`). The assembler decides; callers never pass `isolate` |
+| `e2e.bootFixtures` | URL globs the app needs to boot. A spec whose fixtures map lists one of them runs isolated (unmatched data requests stubbed, `testMode: 'fixture'`); otherwise it runs against the real API (`testMode: 'real-api'`: not isolated — mapped fixtures still answer their globs, everything else reaches the real server). The assembler decides; callers never pass `isolate` |
 | `e2e.softTrack` set | checkpoints whose target, path or TC notes match a `softTrack.patterns` entry get `soft: true` → `cp(…, { soft: true })`: a failure is recorded on the checkpoint and logged, and the test does not fail. The report does not raise it in the conclusion; the HTML step list marks it "Recheck on device" |
 | `e2e.screenCatalog` set | interview Step 1 offers catalog entries before free text |
 

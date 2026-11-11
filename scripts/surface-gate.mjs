@@ -17,7 +17,11 @@
  *
  * Every search reads a commit tree via `git grep <ref>`, so past commits work without a checkout.
  *
- * Usage: node surface-gate.mjs --base <ref> [--head <ref>]
+ * Usage: node surface-gate.mjs [--base <ref>] [--state <state.json>] [--head <ref>]
+ *
+ * Base, first that resolves: --base · the run's `baseCommit` in --state (if still an ancestor of
+ * head) · merge-base with origin/HEAD, main, master, develop. None → ok:false. The resolved base
+ * and its source are in the output; reuse that base for later checks.
  *
  * Config (.agents/pipeline.config.json, all optional):
  *   surfaceGate.autoEntryPaths      repo-relative prefixes the framework registers by location
@@ -29,6 +33,7 @@
  * Output: one JSON object on stdout. Exit code is always 0.
  */
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { DEFAULTS, loadConfig } from './config-load.mjs';
 
@@ -45,11 +50,13 @@ const FRAMEWORK_ENTRY = {
 };
 
 const parseArgs = (argv) => {
-    const args = { base: null, head: 'HEAD' };
+    const args = { base: null, state: null, head: 'HEAD' };
     for (let i = 0; i < argv.length; i++) {
         const a = argv[i];
         if (a === '--base') args.base = argv[++i];
         else if (a.startsWith('--base=')) args.base = a.slice(7);
+        else if (a === '--state') args.state = argv[++i];
+        else if (a.startsWith('--state=')) args.state = a.slice(8);
         else if (a === '--head') args.head = argv[++i];
         else if (a.startsWith('--head=')) args.head = a.slice(7);
     }
@@ -239,17 +246,42 @@ const vanishedTokens = (ctx, base, head) => {
 
 // ---------- main ----------
 
+const tryGit = (argv) => {
+    const r = spawnSync('git', argv, { cwd: ROOT || undefined, encoding: 'utf8' });
+    return r.status === 0 ? r.stdout.trim() : null;
+};
+
+// The default branch name varies (main, master, develop, release lines), so the run records its start.
+const resolveBase = (args) => {
+    if (args.base) return { ref: args.base, source: '--base' };
+    if (args.state) {
+        let start = null;
+        try {
+            start = JSON.parse(readFileSync(args.state, 'utf8')).baseCommit ?? null;
+        } catch {}
+        if (start && tryGit(['merge-base', '--is-ancestor', start, args.head]) !== null) return { ref: start, source: 'state.baseCommit' };
+    }
+    const originHead = tryGit(['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']);
+    for (const branch of [originHead, 'main', 'master', 'develop'].filter(Boolean)) {
+        const mb = tryGit(['merge-base', args.head, branch]);
+        if (mb) return { ref: mb, source: `merge-base ${branch}` };
+    }
+    return null;
+};
+
 const main = () => {
     const args = parseArgs(process.argv.slice(2));
-    if (!args.base) emit({ ok: false, error: '--base <ref> is required' });
+    const resolved = resolveBase(args);
+    if (!resolved) emit({ ok: false, error: 'base commit not found (no baseCommit in state, no origin/HEAD, main, master or develop); pass --base <ref>' });
     const ctx = buildContext();
-    const base = git(['rev-parse', '--short', args.base]).trim();
+    const base = git(['rev-parse', '--short', resolved.ref]).trim();
     const head = git(['rev-parse', '--short', args.head]).trim();
     const files = unreachableFiles(ctx, base, head);
     const exports = unreferencedExports(ctx, base, head);
     emit({
         ok: true,
         base,
+        baseSource: resolved.source,
         head,
         reachability: { unreachableFiles: files, unreferencedExports: exports },
         vanishedTokens: vanishedTokens(ctx, base, head),
