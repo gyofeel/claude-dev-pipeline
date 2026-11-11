@@ -33,6 +33,7 @@ Pipeline rebuilt as nodes and gates, rule-based E2E verdicts with a result repor
 - Example app with an end-to-end Playwright regression under `tests/e2e-example/`.
 - `state.json` records `baseCommit` when a run starts, and `surface-gate` finds the base itself (`--state`, else merge-base with origin/HEAD, main, master or develop) and reports it, so G3 works whatever the default branch is called. The E2E node offers to create fixtures a TC names but nobody wrote, flags a unit runner that also collects the E2E specs, and lists uncommitted E2E files before finishing the branch.
 - The assembler imports the diagnostics helpers only when the body calls them (unused imports failed project lint) and stops on an unquoted `hasText` argument. Every skill states the plugin root, since reference files and the Bash shell do not expand `${CLAUDE_PLUGIN_ROOT}`. `e2e-init gitignore` lists already-tracked report files (`stillTracked`). `report/open.mjs` no longer hangs when piped. Fixtures are documented as JSON only.
+- Report: clicking a step thumbnail opens the full trace frame in a dialog, and a test title that already starts with its TC id is not prefixed twice.
 
 Unchanged: developer style injection from 0.3.0 (`style-extract`, the `style` config section); `tdd-implement` now reads the style file at PLAN step 4.
 
