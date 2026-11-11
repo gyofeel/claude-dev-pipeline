@@ -18,6 +18,7 @@ export const CONFIG_REL = '.agents/pipeline.config.json';
 export const DEFAULTS = {
     $schema: 'dev-pipeline/1',
     worksDir: '.agents/works',
+    language: 'en',
     locale: 'en',
     issueKeyPattern: '[A-Z]+-\\d+',
     branchPrefix: 'feat/',
@@ -79,7 +80,7 @@ export const DEFAULTS = {
         screenCatalog: null,
         archiveDir: null,
         bootFixtures: [],
-        report: { locale: null, loopThreshold: 3 },
+        report: { loopThreshold: 3 },
         judge: { backendErrorPatterns: [] }
     },
     source: {
@@ -166,8 +167,8 @@ const ENUMS = {
     'unitTest.runner': ['vitest', 'jest'],
     'ui.framework': ['auto', 'vue', 'react', 'svelte', 'angular', 'other'],
     'e2e.interaction': ['pointer', 'keyboard'],
-    locale: ['en', 'ko'],
-    'e2e.report.locale': [null, 'en', 'ko']
+    language: ['en', 'ko'],
+    locale: ['en', 'ko']
 };
 
 function validate(cfg, root, errors, warnings) {
@@ -229,7 +230,8 @@ function validate(cfg, root, errors, warnings) {
     if (cfg.e2e?.consoleAllowedMethods !== null && !Array.isArray(cfg.e2e.consoleAllowedMethods))
         errors.push('e2e.consoleAllowedMethods must be null or string[]');
     if (cfg.e2e?.ai !== undefined) warnings.push('e2e.ai is no longer used — verdicts are rule-based; remove the key');
-    if (!Number.isInteger(cfg.e2e?.report?.loopThreshold) || cfg.e2e.report.loopThreshold < 1)
+    if (!isObj(cfg.e2e?.report)) errors.push('e2e.report must be an object');
+    else if (!Number.isInteger(cfg.e2e?.report?.loopThreshold) || cfg.e2e.report.loopThreshold < 1)
         errors.push('e2e.report.loopThreshold must be a positive integer');
     const bep = cfg.e2e?.judge?.backendErrorPatterns;
     if (!isStrings(bep)) errors.push('e2e.judge.backendErrorPatterns must be string[]');
@@ -261,7 +263,12 @@ export function loadConfig(cwd = process.cwd()) {
     } catch (e) {
         return { ok: false, root, raw: null, resolved: null, errors: [`${CONFIG_REL} is not valid JSON: ${e.message}`], warnings };
     }
+    const legacyLanguage = raw.e2e?.report?.locale;
+    if (legacyLanguage != null) warnings.push('e2e.report.locale is replaced by top-level language');
     const resolved = merge(DEFAULTS, raw);
+    if (raw.language === undefined && legacyLanguage != null) resolved.language = legacyLanguage;
+    if (raw.locale === undefined) resolved.locale = resolved.language;
+    if (isObj(resolved.e2e?.report)) delete resolved.e2e.report.locale;
     if (resolved.ui.framework === 'auto') resolved.ui.framework = detectFramework(root);
     validate(resolved, root, errors, warnings);
     for (const k of PATH_KEYS) {

@@ -1,3 +1,5 @@
+> Note (2026-11-11, user decision): `e2e.report.locale` was replaced by top-level `language` (what people read, incl. report UI); `locale` now covers artifact headings and check labels only. The body below keeps the original wording.
+
 # 그래프 정리 · 리포트 개편 플러그인 이식 설계
 
 - 작성일: 2026-11-10

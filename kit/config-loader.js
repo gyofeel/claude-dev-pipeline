@@ -10,6 +10,7 @@ const LOCALES = ['en', 'ko'];
 
 const DEFAULTS = {
     worksDir: '.agents/works',
+    language: 'en',
     locale: 'en',
     platformInterface: { enabled: false, label: 'platform bridge' },
     ui: { stateBridge: null, testIdAttribute: 'data-testid' },
@@ -22,7 +23,7 @@ const DEFAULTS = {
         readyExpr: null,
         softTrack: null,
         bootFixtures: [],
-        report: { locale: null, loopThreshold: 3 },
+        report: { loopThreshold: 3 },
         judge: { backendErrorPatterns: [] }
     }
 };
@@ -50,10 +51,12 @@ export function loadKitConfig(from = process.cwd()) {
     const file = path.join(root, '.agents', 'pipeline.config.json');
     const raw = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {};
     const e2e = raw.e2e || {};
+    const language = raw.language ?? e2e.report?.locale ?? DEFAULTS.language;
     const config = {
         ...raw,
         worksDir: raw.worksDir ?? DEFAULTS.worksDir,
-        locale: raw.locale ?? DEFAULTS.locale,
+        language: language,
+        locale: raw.locale ?? language,
         platformInterface: { ...DEFAULTS.platformInterface, ...(raw.platformInterface || {}) },
         ui: { ...DEFAULTS.ui, ...(raw.ui || {}) },
         e2e: {
@@ -64,6 +67,7 @@ export function loadKitConfig(from = process.cwd()) {
         }
     };
     delete config.e2e.ai;
+    delete config.e2e.report.locale;
     cached = { root, config };
     return cached;
 }
@@ -80,10 +84,10 @@ export function reportSettings(loaded) {
     const report = { ...DEFAULTS.e2e.report, ...(e2e.report || {}) };
     const resultsJson = path.resolve(root, e2e.resultsJson);
     const pi = config.platformInterface;
-    const picked = report.locale ?? config.locale;
-    const locale = LOCALES.includes(picked) ? picked : 'en';
-    // tc.md is written in the top-level locale; only the report text follows e2e.report.locale
-    const artifactLocale = LOCALES.includes(config.locale) ? config.locale : 'en';
+    const locale = LOCALES.includes(config.language) ? config.language : 'en';
+    // tc.md is written in the top-level locale (which follows language when unset); only the report text follows language
+    const artifactPick = config.locale ?? config.language;
+    const artifactLocale = LOCALES.includes(artifactPick) ? artifactPick : 'en';
     return {
         worksDir: path.resolve(root, config.worksDir ?? DEFAULTS.worksDir),
         resultsJson,

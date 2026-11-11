@@ -2,6 +2,7 @@
   "$schema": "dev-pipeline/1",
   "_comment": "Origin project of this plugin: a remote-control-driven TV web app (Nuxt + Pinia). Shows every optional feature switched on: state bridge, keyboard interaction with an adapter, soft-track patterns, approval gates, platform interface.",
 
+  "language": "ko",
   "locale": "ko",
   "worksDir": ".agents/works",
   "issueKeyPattern": "[A-Z]+-\\d+",
@@ -80,7 +81,7 @@
     },
     "screenCatalog": null,
     "bootFixtures": ["**/api/gnb/list*", "**/api/gnb/list"],
-    "report": { "locale": "ko", "loopThreshold": 3 },
+    "report": { "loopThreshold": 3 },
     "judge": { "backendErrorPatterns": ["^(ServerResultError|ServerError)\\b"] }
   },
 

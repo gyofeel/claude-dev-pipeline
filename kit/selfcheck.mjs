@@ -21,7 +21,7 @@ const { RuntimeCollector } = await import('./services/runtime-collector.js');
 
 const { config } = loadKitConfig();
 assert.equal(config.ui.testIdAttribute, 'data-qa');
-assert.equal(config.e2e.report.locale, null);
+assert.equal(config.e2e.report.locale, undefined);
 assert.equal(config.locale, 'en');
 assert.equal(config.e2e.fixturesDir, 'fx');
 

@@ -17,7 +17,8 @@ test('defaults fill locale, report, judge, archive and bootFixtures', () => {
     const { config } = loadKitConfig(repo({}));
     assert.equal(config.worksDir, '.agents/works');
     assert.equal(config.locale, 'en');
-    assert.deepEqual(config.e2e.report, { locale: null, loopThreshold: 3 });
+    assert.deepEqual(config.e2e.report, { loopThreshold: 3 });
+    assert.equal(config.language, 'en');
     assert.deepEqual(config.e2e.judge, { backendErrorPatterns: [] });
     assert.equal(config.e2e.archiveDir, null);
     assert.deepEqual(config.e2e.bootFixtures, []);
@@ -25,9 +26,9 @@ test('defaults fill locale, report, judge, archive and bootFixtures', () => {
 });
 
 test('nested report/judge objects merge with defaults', () => {
-    const dir = repo({ e2e: { report: { locale: 'ko' }, judge: { backendErrorPatterns: ['^X'] } } });
+    const dir = repo({ e2e: { report: { loopThreshold: 5 }, judge: { backendErrorPatterns: ['^X'] } } });
     const { config } = loadKitConfig(dir);
-    assert.deepEqual(config.e2e.report, { locale: 'ko', loopThreshold: 3 });
+    assert.deepEqual(config.e2e.report, { loopThreshold: 5 });
     assert.deepEqual(config.e2e.judge.backendErrorPatterns, ['^X']);
 });
 
@@ -53,18 +54,26 @@ test('reportSettings: explicit archiveDir wins, disabled platform gives null lab
     assert.equal(s.platformLabel, null);
 });
 
-test('locale: top-level applies, report.locale overrides, unknown falls back to en', () => {
-    assert.equal(reportSettings(loadKitConfig(repo({ locale: 'ko' }))).locale, 'ko');
-    assert.equal(reportSettings(loadKitConfig(repo({ locale: 'ko', e2e: { report: { locale: 'en' } } }))).locale, 'en');
-    assert.equal(reportSettings({ e2e: { report: { locale: 'fr' } } }).locale, 'en');
-    assert.equal(reportSettings({ locale: 'ko', e2e: { report: { locale: 'fr' } } }).locale, 'en');
+test('reportSettings.locale follows language; unknown falls back to en', () => {
+    assert.equal(reportSettings(loadKitConfig(repo({ language: 'ko' }))).locale, 'ko');
+    assert.equal(reportSettings(loadKitConfig(repo({ locale: 'ko' }))).locale, 'en');
+    assert.equal(reportSettings({ language: 'fr' }).locale, 'en');
 });
 
-test('artifactLocale follows the top-level locale only; report.locale changes report text', () => {
-    const s = reportSettings(loadKitConfig(repo({ locale: 'en', e2e: { report: { locale: 'ko' } } })));
+test('artifactLocale follows locale, which follows language when unset', () => {
+    const s = reportSettings(loadKitConfig(repo({ language: 'ko', locale: 'en' })));
     assert.equal(s.locale, 'ko');
     assert.equal(s.artifactLocale, 'en');
-    assert.equal(reportSettings({ locale: 'ko' }).artifactLocale, 'ko');
+    assert.equal(reportSettings(loadKitConfig(repo({ language: 'ko' }))).artifactLocale, 'ko');
+    assert.equal(reportSettings({ language: 'ko' }).artifactLocale, 'ko');
     assert.equal(reportSettings({ locale: 'fr' }).artifactLocale, 'en');
     assert.equal(reportSettings({}).artifactLocale, 'en');
+});
+
+test('legacy e2e.report.locale is read as language', () => {
+    assert.equal(reportSettings(loadKitConfig(repo({ e2e: { report: { locale: 'ko' } } }))).locale, 'ko');
+});
+
+test('e2e.report null does not crash the kit loader', () => {
+    assert.equal(loadKitConfig(repo({ e2e: { report: null } })).config.e2e.report.loopThreshold, 3);
 });

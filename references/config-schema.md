@@ -20,7 +20,8 @@ Keys marked **required** must be present. Everything else has the default shown.
   "$schema": "dev-pipeline/1",
 
   // ── Artifacts ─────────────────────────────────────────────
-  "locale": "en",                       // "en" | "ko" — language of generated artifacts (PRD, TC, plan headers, report)
+  "language": "en",                     // "en" | "ko" — what people read: conversation, questions, guidance, E2E report UI
+  "locale": "en",                       // "en" | "ko" — PRD / TC / plan headings and the labels the checks match; default: same as language
   "worksDir": ".agents/works",          // <worksDir>/<slug>/{prd.md,tc.md,<slug>-plan.md,state.json}
   "issueKeyPattern": "[A-Z]+-\\d+",     // ticket id recognised in args and branch names
   "branchPrefix": "feat/",              // tdd-implement creates <branchPrefix><slug>
@@ -103,7 +104,6 @@ Keys marked **required** must be present. Everything else has the default shown.
     "bootFixtures": [],                 // URL globs the app needs to boot (e.g. ["**/api/session*"]), written exactly as
                                         // spec fixtures map keys; a spec mocking one of them runs isolated
     "report": {
-      "locale": null,                   // "en" | "ko"; null → top-level locale
       "loopThreshold": 3                // a test needing this many regeneration loops is flagged in the report
     },
     "judge": {

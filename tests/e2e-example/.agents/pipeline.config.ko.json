@@ -1,6 +1,7 @@
 {
     "$schema": "dev-pipeline/1",
     "worksDir": "works",
+    "language": "ko",
     "locale": "ko",
     "commands": {
         "unitTest": "node --test",

@@ -45,14 +45,14 @@ const write = (file, text) => {
 };
 
 // Example project for one locale, with the kit, adapter and Playwright config installed as e2e-init does
-const createProject = async (locale, { reportLocale = null } = {}) => {
+const createProject = async (locale, { language = null } = {}) => {
     mkdirSync(RUNS, { recursive: true });
     const root = mkdtempSync(path.join(RUNS, `${locale}-`));
-    const project = { root, locale, reportLocale };
+    const project = { root, locale, language };
     projects.push(project);
     const port = String(await freePort());
     const config = JSON.parse(readFileSync(path.join(HERE, `.agents/pipeline.config.${locale}.json`), 'utf8').replaceAll('4317', port));
-    if (reportLocale) config.e2e.report = { locale: reportLocale };
+    if (language) config.language = language;
     write(path.join(root, '.agents/pipeline.config.json'), JSON.stringify(config, null, 4));
     const e2e = { kitDir: 'e2e/kit', adapterModule: 'e2e/e2e.adapter.js', specsDir: 'e2e/specs', fixturesDir: 'e2e/fixtures', resultsJson: 'e2e/reports/results.json', ...config.e2e };
 
@@ -217,10 +217,10 @@ for (const locale of ['en', 'ko']) {
     });
 }
 
-describe('example pipeline (en artifacts, ko report)', () => {
-    test('tc.md is read in the artifact locale while the report text is ko', async () => {
+describe('example pipeline (language ko, locale en)', () => {
+    test('tc.md is read in the artifact locale while the report text is ko (language ko, locale en)', async () => {
         requireDeps();
-        const project = await createProject('en', { reportLocale: 'ko' });
+        const project = await createProject('en', { language: 'ko' });
         const works = path.join(project.root, project.config.worksDir, 'sample');
         for (const input of tcInputs(readFileSync(path.join(works, 'tc.md'), 'utf8'), project)) assemble(project, input);
         const run = playwright(project, `${project.e2e.specsDir}/sample/`);
@@ -238,7 +238,7 @@ describe('example pipeline (en artifacts, ko report)', () => {
 describe('example pipeline (regressions)', () => {
     test('service worker on list.html does not bypass the page.route mock', () => {
         requireDeps();
-        const project = projects.find((p) => p.locale === 'en' && !p.reportLocale);
+        const project = projects.find((p) => p.locale === 'en' && !p.language);
         assert.ok(project, 'en project not created');
         const run = playwright(project, `${project.e2e.specsDir}/sample/tc02-item-list.spec.js`);
         assert.equal(run.status, 0, run.output.slice(-4000));
@@ -248,7 +248,7 @@ describe('example pipeline (regressions)', () => {
 
     test('a mock no test uses fails its spec file as mock-unused', () => {
         requireDeps();
-        const project = projects.find((p) => p.locale === 'en' && !p.reportLocale);
+        const project = projects.find((p) => p.locale === 'en' && !p.language);
         assert.ok(project, 'en project not created');
         const works = path.join(project.root, project.config.worksDir);
         // a tc.md beside the slug makes the reporter write e2e-report.md, whose result cell names the failure kind
@@ -273,7 +273,7 @@ describe('example pipeline (regressions)', () => {
 
     test('a multi-case spec with an Observe checkpoint shares one beforeEach mock and passes', () => {
         requireDeps();
-        const project = projects.find((p) => p.locale === 'en' && !p.reportLocale);
+        const project = projects.find((p) => p.locale === 'en' && !p.language);
         assert.ok(project, 'en project not created');
         const spec = assemble(project, {
             outputPath: `${project.e2e.specsDir}/multi/list-bundle.spec.js`,
