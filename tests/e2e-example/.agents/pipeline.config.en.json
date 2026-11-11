@@ -1,0 +1,18 @@
+{
+    "$schema": "dev-pipeline/1",
+    "worksDir": "works",
+    "locale": "en",
+    "commands": {
+        "unitTest": "node --test",
+        "dev": "node -e 'const http = require(\"node:http\"), fs = require(\"node:fs\"); http.createServer((req, res) => { const p = new URL(req.url, \"http://x\").pathname; fs.readFile(\"app\" + (p === \"/\" ? \"/index.html\" : p), (err, body) => { res.writeHead(err ? 404 : 200, { \"content-type\": p.endsWith(\".js\") ? \"text/javascript\" : \"text/html\" }); res.end(err ? \"\" : body); }); }).listen(4317)'",
+        "e2eRun": "npx playwright test"
+    },
+    "e2e": {
+        "baseUrl": "http://127.0.0.1:4317",
+        "healthUrlPath": "/",
+        "bootFixtures": ["**/api/items"]
+    },
+    "source": {
+        "roots": ["app"]
+    }
+}

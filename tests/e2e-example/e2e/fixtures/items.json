@@ -1,0 +1,6 @@
+{
+    "items": [
+        { "id": "a", "display_name": "First mocked item" },
+        { "id": "b", "display_name": "Second mocked item" }
+    ]
+}

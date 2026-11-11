@@ -1,0 +1,8 @@
+{
+    "name": "dev-pipeline-e2e-example",
+    "private": true,
+    "type": "module",
+    "devDependencies": {
+        "@playwright/test": "1.65.0"
+    }
+}
