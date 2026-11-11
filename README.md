@@ -29,11 +29,9 @@ Requires the `superpowers` plugin for the TDD stage (`/plugin install superpower
 
 ## Getting started
 
-```
-/dev-pipeline:init          # detects your toolchain, asks a few questions, writes .agents/pipeline.config.json
-/dev-pipeline:e2e-init      # (E2E only) copies the runtime kit and scaffolds e2e/e2e.adapter.js + playwright.config.js
-/dev-pipeline:auto-e2e-pipeline PROJ-1234        # or auto-dev-pipeline; the issue key is optional and read from the branch name
-```
+1. Install the plugin (above).
+2. Run `/dev-pipeline:init`. It asks your language first, then walks you through the rest one step at a time: config, the E2E kit, and your first feature.
+3. The one command to remember, first time or stuck / 처음이든 막혔든: `/dev-pipeline:init`. With a config in place it shows your settings and asks what to do next, including resuming work in progress.
 
 Each stage can also run alone: `/dev-pipeline:prd-extract`, `/dev-pipeline:tc-extract <prd.md>`, `/dev-pipeline:tdd-implement <tc.md>`, `/dev-pipeline:e2e-test <tc.md | description>`.
 
@@ -62,7 +60,7 @@ tests/             node --test suites for kit and scripts, and an example app ru
 { "$schema": "dev-pipeline/1", "commands": { "unitTest": "npx vitest run" } }
 ```
 
-Artifact language: `locale` (`"en"` default, or `"ko"`) sets PRD / TC / plan headings, check labels and the report; `e2e.report.locale` picks a different report language. Source scanning (`red-gate`, `field-consumers`, `flag-effects`) reads `source.roots`, `source.extensions` and `source.aliases` (default: tsconfig/jsconfig `paths`).
+Languages: `language` (`"en"` default, or `"ko"`) is what people read: conversation, questions, guidance and the report UI; `locale` (follows `language` when unset) sets PRD / TC / plan headings and the labels the checks match. Source scanning (`red-gate`, `field-consumers`, `flag-effects`) reads `source.roots`, `source.extensions` and `source.aliases` (default: tsconfig/jsconfig `paths`).
 
 Optional switches (all default off): `ui.stateBridge` enables State checkpoints and the runtime probe; `e2e.interaction: "keyboard"` routes navigation through your adapter's `findAndEnter`; `e2e.softTrack` turns assertions that depend on an unavailable runtime into recorded-but-non-failing checks; `approvalGates[]` adds project-specific human approvals to the implementation gate; `e2e.bootFixtures` lists the URL globs your app needs to boot so specs that mock them run isolated from the real API; `e2e.judge.backendErrorPatterns` names console errors that report a backend response (excluded under fixtures, failures against the real API). Full schema: `references/config-schema.md`.
 

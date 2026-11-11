@@ -33,6 +33,8 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/config-load.mjs" --get style || node "${CLAU
 
 No config is fine: the scripts fall back to the defaults. Add `<style.stylesDir>/.work/` to `.gitignore` if it is not there.
 
+Talk to the developer in config `language` (`config-load.mjs --get language`; no config → the language they write in) and shape every message by the contract's User-facing output (`../auto-e2e-pipeline/references/shared-contract.md`).
+
 ## Flow
 
 Each node ends with one artifact. The developer is asked in node 0 (only when the catalog is new) and node 5.
@@ -136,7 +138,7 @@ Write `<style.stylesDir>/<name>.md` from the answers.
 - **Candidates not asked**: keep them with `(unconfirmed)` at the end of the line. Do not let them pass as confirmed. They become question candidates on the next update.
 - Work habits the developer states (e.g. "ask before guessing") go into a free section as said.
 
-Report: file path, sections per layer, number of `AskUserQuestion` calls, where the working files are. Commit only when the developer asks.
+Report: file path, sections per layer, number of `AskUserQuestion` calls, where the working files are. Commit only when the developer asks. End with one next action in plain words: the next `/dev-pipeline:tdd-implement` plan picks the file up on its own (it matches the developer's `git config user.email`).
 
 ## Style file format
 

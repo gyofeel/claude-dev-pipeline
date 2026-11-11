@@ -7,7 +7,7 @@ description: Use when a project needs the E2E runtime kit installed or upgraded 
 
 Generated specs import runtime code (mocking, collection, rule-based verdict, result report, diagnostics). That code must live in the project so CI runs without the plugin. This skill copies it from the plugin and scaffolds the project adapter. Contract: [adapter-contract.md](../../references/adapter-contract.md).
 
-Arguments: `--upgrade` (replace an existing kit after showing a diff).
+Arguments: `--upgrade` (replace an existing kit after showing a diff); `--from-init` (called by `dev-pipeline:init` right after it wrote the config; see Step 6).
 
 ## Step 1 — Load config
 
@@ -15,9 +15,11 @@ Arguments: `--upgrade` (replace an existing kit after showing a diff).
 node "${CLAUDE_PLUGIN_ROOT}/scripts/config-load.mjs" --check && node "${CLAUDE_PLUGIN_ROOT}/scripts/config-load.mjs"
 ```
 
-Missing or invalid → stop: "Run `/dev-pipeline:init` first." Read from the resolved JSON: `e2e.kitDir`, `e2e.adapterModule`, `e2e.specsDir`, `e2e.fixturesDir`, `e2e.resultsJson`, `e2e.baseUrl`, `e2e.healthUrlPath`, `e2e.interaction`, `commands.dev`, `commands.e2eRun`. Show any `warnings[]` (an `e2e.ai` key left over from 0.3 is one: tell the user to delete it).
+Missing or invalid → stop: "Run `/dev-pipeline:init` first." Read from the resolved JSON: `language`, `e2e.kitDir`, `e2e.adapterModule`, `e2e.specsDir`, `e2e.fixturesDir`, `e2e.resultsJson`, `e2e.baseUrl`, `e2e.healthUrlPath`, `e2e.interaction`, `commands.dev`, `commands.e2eRun`. Show any `warnings[]` (an `e2e.ai` key left over from 0.3 is one: tell the user to delete it).
 
 `commands.e2eRun` null → warn that Playwright was not detected; continue (the kit can be installed ahead of the dependency).
+
+Talk to the user in `language` and shape every message by the contract's User-facing output (`../auto-e2e-pipeline/references/shared-contract.md`). A stop above or below is a final message too: its one next action is the fix it names.
 
 ## Step 2 — Plan the changes and check collisions
 
@@ -45,7 +47,13 @@ Build the list:
 Print the table with the action per row. Then:
 
 - Kit exists, no `--upgrade` → say the versions and stop unless the user passed `--upgrade`. Do not touch the kit.
-- Kit exists with `--upgrade` → `diff -rq "$ROOT/<kitDir>" "$PLUGIN_KIT" --exclude=adapter.template.js --exclude=playwright.config.template.js` and show a summary (files added / changed / removed). `Only in $ROOT/<kitDir>` lines are files the new kit no longer has (from kit 0.1: `services/ai-analyzer.js`, `prompts/`, `selfcheck-analyzer.mjs`); replacing deletes them. Then `AskUserQuestion`:
+- Kit exists with `--upgrade` → first refuse a downgrade:
+  ```bash
+  ROOT=$(git rev-parse --show-toplevel); PLUGIN_KIT="${CLAUDE_PLUGIN_ROOT}/kit"
+  K=$(cat "$ROOT/<kitDir>/VERSION"); P=$(cat "$PLUGIN_KIT/VERSION")
+  [ "$K" != "$P" ] && [ "$(printf '%s\n%s\n' "$K" "$P" | sort -V | tail -1)" = "$K" ] && echo KIT_NEWER
+  ```
+  `KIT_NEWER` → stop without touching anything: "The project's kit (<K>) is newer than this plugin's (<P>); replacing it would be a downgrade. Update the dev-pipeline plugin from the `/plugin` menu, then run this again." Otherwise `diff -rq "$ROOT/<kitDir>" "$PLUGIN_KIT" --exclude=adapter.template.js --exclude=playwright.config.template.js` and show a summary (files added / changed / removed). `Only in $ROOT/<kitDir>` lines are files the new kit no longer has (from kit 0.1: `services/ai-analyzer.js`, `prompts/`, `selfcheck-analyzer.mjs`); replacing deletes them. Then `AskUserQuestion`:
 
 **Question**: "Replace the project's kit with the plugin version?"
 - header: `Kit upgrade`
@@ -59,6 +67,7 @@ Anything else in the table that already exists is skipped and reported; nothing 
 ## Step 3 — Apply
 
 ```bash
+ROOT=$(git rev-parse --show-toplevel); PLUGIN_KIT="${CLAUDE_PLUGIN_ROOT}/kit"
 rm -rf "$ROOT/<kitDir>"   # --upgrade only: after the Replace answer, and only with check-kit-dir ok: true
 mkdir -p "$ROOT/<kitDir>" "$ROOT/<fixturesDir>" "$ROOT/<specsDir>" "$(dirname "$ROOT/<resultsJson>")"
 cp -R "$PLUGIN_KIT"/. "$ROOT/<kitDir>/"
@@ -69,6 +78,7 @@ rm -f "$ROOT/<kitDir>/utils/adapter.template.js" "$ROOT/<kitDir>/playwright.conf
 Keep the run outputs out of git (idempotent; prints the lines it added):
 
 ```bash
+ROOT=$(git rev-parse --show-toplevel)
 cd "$ROOT" && node "${CLAUDE_PLUGIN_ROOT}/scripts/e2e-init.mjs" gitignore
 ```
 
@@ -81,6 +91,7 @@ Fix the adapter's kit import path if `<adapterModule>` and `<kitDir>` are not si
 Do not substitute placeholders by hand; the script writes `playwright.config.js` from the template and the config (`commands.dev` as a JSON string, the `webServer` block dropped when it is null) and refuses to overwrite:
 
 ```bash
+ROOT=$(git rev-parse --show-toplevel)
 cd "$ROOT" && node "${CLAUDE_PLUGIN_ROOT}/scripts/e2e-init.mjs" write-playwright-config
 ```
 
@@ -91,6 +102,7 @@ cd "$ROOT" && node "${CLAUDE_PLUGIN_ROOT}/scripts/e2e-init.mjs" write-playwright
 Never edit it. Check it and print what is missing:
 
 ```bash
+ROOT=$(git rev-parse --show-toplevel)
 cd "$ROOT" && F=$(ls playwright.config.* | head -1)
 grep -qE "serviceWorkers: *['\"]block" "$F" || echo MISSING_SW
 grep -q "archive-reporter" "$F" || echo MISSING_ARCHIVE
@@ -110,14 +122,16 @@ An app that cannot boot without its service worker fails at boot once workers ar
 ## Step 4 — Dependencies (report only, never install)
 
 ```bash
+ROOT=$(git rev-parse --show-toplevel)
 node -e "const p=require('$ROOT/package.json');console.log(p.devDependencies?.['@playwright/test']||p.dependencies?.['@playwright/test']||'MISSING')"
 ```
 
-`MISSING` → print the install command for the detected package manager (`pnpm add -D @playwright/test` / `npm i -D @playwright/test` / …) and `npx playwright install chromium`. Present → print only the browser hint: "If Playwright was just installed or upgraded, run `npx playwright install chromium` once."
+`MISSING` → the install is the next action (Step 6): one line for the detected package manager, e.g. `pnpm add -D @playwright/test && npx playwright install chromium` (`npm i -D …`, `yarn add -D …`, `bun add -d …`). Present → print only the browser hint in plain words: if Playwright was just installed or upgraded, the browser needs `npx playwright install chromium` once.
 
 ## Step 5 — Verify the kit loads
 
 ```bash
+ROOT=$(git rev-parse --show-toplevel)
 cd "$ROOT" && node -e "import('./<kitDir>/index.js').then(m=>console.log('kit ok', m.KIT_VERSION)).catch(e=>{console.error(e.message);process.exit(1)})"
 ```
 
@@ -125,24 +139,29 @@ Fails while Step 4 printed `MISSING` → expected: the kit imports `@playwright/
 
 ## Step 6 — Report
 
+In `language`; the first line says where we are.
+
 ```
 E2E kit installed
   kit       <kitDir>/  (v<version>)
   adapter   <adapterModule>  (<created | kept>)
   config    playwright.config.js  (<created | kept — N snippets to add>)
   dirs      <fixturesDir>/  <specsDir>/
-
-Next: /dev-pipeline:e2e-test  or  /dev-pipeline:auto-e2e-pipeline
 ```
 
 After an upgrade from kit 0.1, add one line: "Read the plugin's CHANGELOG.md (0.4.0) for config keys and regenerated specs."
 
-When `e2e.interaction` is `keyboard`, append:
+When `e2e.interaction` is `keyboard`, add:
 
 ```
 Keyboard interaction is configured. The adapter must implement findAndEnter(page, target)
 before any spec with a navigation plan can run — see ${CLAUDE_PLUGIN_ROOT}/examples/adapters/.
 ```
+
+End with exactly one next action, a command alone in a code block. With `--from-init`, everything above stays (the report block, the browser hint, the upgrade and keyboard notes); only this next action is replaced: show a Step 4 install line, if any, as the dependency report, and return to init, which asks what comes next.
+- Step 4 printed `MISSING` → the install line from Step 4.
+- A command in this session stopped for a missing or outdated kit (e.g. `e2e-test`) → that command again.
+- Otherwise → `/dev-pipeline:auto-e2e-pipeline` (it resumes the run in progress or starts a new one).
 
 ## Rules
 

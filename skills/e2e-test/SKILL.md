@@ -36,7 +36,8 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/config-load.mjs" --check
 - `e2e.kitDir` does not exist (or `<kitDir>/VERSION` missing) → stop: "Run `/dev-pipeline:e2e-init` to install the runtime kit." Generated specs import the kit; without it nothing runs.
 - `cmp -s <kitDir>/VERSION "${CLAUDE_PLUGIN_ROOT}/kit/VERSION"` fails (the project's kit is another version) → stop: "Run `/dev-pipeline:e2e-init --upgrade`." The assembler writes imports for this plugin's kit.
 - `commands.e2eRun` null (config-load warns) → stop: "Install Playwright and set `commands.e2eRun`." Nothing can run the specs.
-- Keep the resolved config in hand for the rest of the skill. Every path, command, and feature switch below comes from it (`worksDir`, `locale`, `e2e.specsDir`, `e2e.fixturesDir`, `e2e.specFilePrefix`, `e2e.kitDir`, `e2e.bootFixtures`, `e2e.interaction`, `ui.stateBridge`, `e2e.softTrack`, `e2e.screenCatalog`, `commands.e2eRun`).
+- Keep the resolved config in hand for the rest of the skill. Every path, command, and feature switch below comes from it (`worksDir`, `language`, `locale`, `e2e.specsDir`, `e2e.fixturesDir`, `e2e.specFilePrefix`, `e2e.kitDir`, `e2e.bootFixtures`, `e2e.interaction`, `ui.stateBridge`, `e2e.softTrack`, `e2e.screenCatalog`, `commands.e2eRun`).
+- Talk to the user in `language` and shape every message by the contract's User-facing output (`${CLAUDE_PLUGIN_ROOT}/skills/auto-e2e-pipeline/references/shared-contract.md`). Standalone, the closing message ends with one next action.
 - Never run Playwright with `sudo`. A root-owned build, cache or report directory breaks every later run with `EACCES`; the fix is the user restoring ownership once, not a privileged re-run.
 
 Feature switches that shape the questions and the generated code:

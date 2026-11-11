@@ -15,12 +15,14 @@ Pipeline rebuilt as nodes and gates, rule-based E2E verdicts with a result repor
 - **Service workers blocked.** The Playwright config template sets `serviceWorkers: 'block'` (a worker can answer before `page.route` and bypass mocks) and `trace: 'on'` (report frames), and registers the archive reporter last.
 - **red-gate CLI.** The ledger `red-evidence.jsonl` now sits next to the plan (`<worksDir>/<slug>/`), not under `.superpowers/sdd/`. `--project <name>` is optional (no project filter when omitted); `--phase char` records characterization tasks. `--all` runs every project.
 - **Config.** `e2e.ai` is removed (`config-load --check` warns while it is present). `commands.unitTest` / `commands.e2eRun` set to null (no runner, no Playwright) now load with a warning instead of an error.
-- **Report locale split.** tc.md is always read with the top-level `locale`; `e2e.report.locale` changes only the report text. A tc.md whose TC blocks have none of the expected field labels, a spec file that failed to load, a passed test without a runtime verdict, a feature directory without tc.md and a TC whose spec exists but maps to no test are all raised in the conclusion instead of reading as "Approvable".
+- **Report locale split.** tc.md is always read with the top-level `locale`; the report text follows `language`. A tc.md whose TC blocks have none of the expected field labels, a spec file that failed to load, a passed test without a runtime verdict, a feature directory without tc.md and a TC whose spec exists but maps to no test are all raised in the conclusion instead of reading as "Approvable".
 - **Stricter checks.** `e2e-init check-kit-dir` refuses a kit directory that contains any configured path (works, archive, style, catalog, …), that resolves through a symlink onto one, or that exists with files but no `VERSION`. `red-gate --all` that collected zero tests is `NOT_COLLECTED`, never `OK_GREEN`. The assembler refuses a TC with neither checkpoints nor a test body (`<tcName>: no checkpoints`).
 
 ### Added
 
-- Config keys: `locale`, `e2e.report.locale` (null → `locale`), `e2e.report.loopThreshold` (3), `e2e.judge.backendErrorPatterns` (`[]`), `e2e.bootFixtures` (URL globs the app needs to boot; a spec mocking one runs isolated), `e2e.archiveDir` (null → `<dirname(resultsJson)>/archive`), `source.roots` (`["src"]`), `source.extensions`, `source.aliases` (null → tsconfig/jsconfig `paths`).
+- **Guided setup.** `/dev-pipeline:init` asks your language first, explains each setting by what it changes for you, installs the E2E kit itself, and ends by asking what to do next, so you never type a chain of commands. Run it again any time: it shows your settings and offers the next step (new feature, verify, resume work in progress, install or upgrade the E2E kit, change settings). Every message says where you are and ends with one next step.
+- **Two language settings.** `language` is what you read: conversation, questions, guidance and the E2E report. `locale` is the language of PRD, TC and plan headings; it follows `language`, and init asks about it only when your existing documents use the other one.
+- Config keys: `language` (conversation, questions, guidance and report UI; default `en`), `locale` (artifact headings and check labels; follows `language` when unset), `e2e.report.loopThreshold` (3), `e2e.judge.backendErrorPatterns` (`[]`), `e2e.bootFixtures` (URL globs the app needs to boot; a spec mocking one runs isolated), `e2e.archiveDir` (null → `<dirname(resultsJson)>/archive`), `source.roots` (`["src"]`), `source.extensions`, `source.aliases` (null → tsconfig/jsconfig `paths`).
 - External PRD import: pass a `prd.md` path that has no state file to either pipeline; it is format-checked (fix list only, never auto-edited) and enters at G1.
 - Scripts: `field-consumers`, `flag-effects`, `lib/source-scan` (scan targets from `source.*`; zero targets is an error, never a pass), `e2e-init` (kit-directory safety check before replacing the kit; writes `playwright.config.js` from the template), `commit-msg-check` (tdd-implement dry-runs the project's commit-msg hook before the first commit and drops the session trailer if the hook rejects it).
 - Checkpoint types `URL` (pathname / search / href), `Popup` (windows opened, first window's address) and `Observe` (short-lived elements sampled over a window).
@@ -36,7 +38,7 @@ Unchanged: developer style injection from 0.3.0 (`style-extract`, the `style` co
 
 1. Config (`.agents/pipeline.config.json`):
    - delete `e2e.ai`;
-   - add `locale` (and `e2e.report.locale` if the report should use another language);
+   - add `language` (and `locale` if artifact headings should use another language);
    - set `source.roots` to your source directories (the default `["src"]` finds nothing in, say, a Nuxt `app/` tree, and the scan then errors);
    - set `source.aliases` when tsconfig/jsconfig `paths` do not describe your aliases (e.g. Nuxt: `{ "~/": "app/", "@/": "" }`);
    - list your boot API globs in `e2e.bootFixtures`;

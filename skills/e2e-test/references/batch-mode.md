@@ -166,7 +166,7 @@ Report:     <html path>  (node <e2e.kitDir>/report/open.mjs)
 Conclusion: <Conclusion value from e2e-report.md>
 ```
 
-- **Standalone**: add the run command for later (`<commands.e2eRun> <e2e.specsDir>/<slug>/`) and finish.
+- **Standalone**: add the run command for later (`<commands.e2eRun> <e2e.specsDir>/<slug>/`) as a summary line, and end with one next action (shared contract, User-facing output): open the report, `node <e2e.kitDir>/report/open.mjs`, alone in a code block.
 - **`--pipeline`**: end with the gate summary instead (shared contract, node call convention) — artifact `<worksDir>/<slug>/e2e-report.md` · metrics (specs generated N · final run PASS N / FAIL N / SKIP N · skipped manual N · conclusion) · pending decisions (the report's "needs review" items: unmarked checkpoints, `[verify` values with their actuals, unmapped specs, loops ≥ `e2e.report.loopThreshold`, SKIPs, `DATA:` failures) · soft checkpoints, as a separate count: the conclusion does not list them, the HTML step list marks them "Recheck on device" · the grouping used. Ask nothing; the router's gate does.
 
 ## Notes

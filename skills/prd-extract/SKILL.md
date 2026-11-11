@@ -27,7 +27,9 @@ The artifact is `<worksDir>/<slug>/prd.md`. Its format is [references/prd-format
 node "${CLAUDE_PLUGIN_ROOT}/scripts/config-load.mjs"
 ```
 
-Missing config → stop: "No `.agents/pipeline.config.json`. Run `/dev-pipeline:init` first." Keep `worksDir`, `locale`, `issueKeyPattern`, `platformInterface`, `e2e.fixturesDir`, `e2e.specsDir`, `ui.selectorPriority`.
+Missing config → stop: "No `.agents/pipeline.config.json`. Run `/dev-pipeline:init` first." Keep `worksDir`, `language`, `locale`, `issueKeyPattern`, `platformInterface`, `e2e.fixturesDir`, `e2e.specsDir`, `ui.selectorPriority`.
+
+Talk to the user in `language` and shape every message by the contract's User-facing output (`../auto-e2e-pipeline/references/shared-contract.md`).
 
 Headings and fixed values are written with the labels of config `locale` (`${CLAUDE_PLUGIN_ROOT}/kit/artifact-labels.mjs`). A PRD written with the other locale's headings fails the lint as `no-ac`.
 
@@ -115,7 +117,7 @@ Bundle what passes into one `AskUserQuestion` call, at most 4 questions. After e
    - pending decisions: the `## Open Questions` items that may block the next stage
    - `lint.warnings`
 
-With `--pipeline` this is the gate summary and G1 is the router's. Standalone, confirm once with `AskUserQuestion` (`Confirm` / `Needs corrections` → revise mode on the saved file), then point to the next step: `/dev-pipeline:tc-extract <worksDir>/<slug>/prd.md`.
+With `--pipeline` this is the gate summary and G1 is the router's. Standalone, confirm once with `AskUserQuestion` (`Confirm` / `Needs corrections` → revise mode on the saved file), then end with the one next action, alone in a code block: `/dev-pipeline:tc-extract <worksDir>/<slug>/prd.md`.
 
 ## Text rules for every AskUserQuestion
 

@@ -34,7 +34,7 @@ This skill reads the state, calls the next node, and opens the gate when the nod
 node "${CLAUDE_PLUGIN_ROOT}/scripts/config-load.mjs"
 ```
 
-Missing or invalid → stop: "No `.agents/pipeline.config.json`. Run `/dev-pipeline:init` first." Use the resolved `worksDir`, `e2e.specsDir`, `e2e.kitDir`, `issueKeyPattern`, `branchPrefix`, `locale`. Then route (contract, Routing).
+Missing or invalid → stop: "No `.agents/pipeline.config.json`. Run `/dev-pipeline:init` first." Use the resolved `worksDir`, `e2e.specsDir`, `e2e.kitDir`, `issueKeyPattern`, `branchPrefix`, `language`, `locale`. Talk to the user in `language` and shape every message by the contract's User-facing output (where we are first, one next action last). Then route (contract, Routing).
 
 ## Nodes
 
@@ -78,17 +78,20 @@ The exact commands and how to read their output are in the contract. If `ok` is 
 
 ## Completion report
 
+In `language`; the first line says where we are (`[5/5] …` / `[4/4] …`).
+
 ```
 ✅ <feature> — <worksDir>/<slug>/
    prd.md · tc.md · <slug>-plan.md · red-evidence.jsonl · e2e-report.md
    unit tests N passing · E2E specs N PASS
 ```
 
-With E2E skipped by `-no-e2e`, replace the last line with:
+The one next action is the `superpowers:finishing-a-development-branch` question that follows.
+
+With E2E skipped by `-no-e2e`, replace the last line with the two below. The one next action is resuming E2E later, alone in a code block: `/dev-pipeline:auto-dev-pipeline <slug>` (finishing-a-development-branch already ran at G3).
 
 ```
    unit tests N passing · E2E skipped (-no-e2e) — N E2E TCs remain
-   continue: /dev-pipeline:auto-dev-pipeline <slug>   or   /dev-pipeline:e2e-test <worksDir>/<slug>/tc.md
    surface-gate vanishedTokens: <list or none>
 ```
 

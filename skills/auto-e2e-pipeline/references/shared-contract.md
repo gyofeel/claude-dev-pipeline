@@ -1,10 +1,11 @@
 # Shared pipeline contract
 
-> `dev-pipeline:auto-e2e-pipeline` and `dev-pipeline:auto-dev-pipeline` both follow this document. Each router reads it before Step 0. Defining it twice causes drift; do not copy it.
+> `dev-pipeline:auto-e2e-pipeline` and `dev-pipeline:auto-dev-pipeline` both follow this document. Each router reads it before Step 0. Every skill of the plugin follows its "User-facing output" section. Defining it twice causes drift; do not copy it.
 
-Paths come from `.agents/pipeline.config.json` (`worksDir`, `e2e.specsDir`, `e2e.kitDir`, `branchPrefix`, `issueKeyPattern`, `locale`). Below, `<worksDir>` etc. stand for the resolved values and `<plugin>` for `${CLAUDE_PLUGIN_ROOT}`.
+Paths come from `.agents/pipeline.config.json` (`worksDir`, `e2e.specsDir`, `e2e.kitDir`, `branchPrefix`, `issueKeyPattern`, `language`, `locale`). Below, `<worksDir>` etc. stand for the resolved values and `<plugin>` for `${CLAUDE_PLUGIN_ROOT}`.
 
 ## Contents
+- User-facing output
 - Graph principle
 - Nodes, gates and deterministic checks
 - Reading check output
@@ -14,6 +15,20 @@ Paths come from `.agents/pipeline.config.json` (`worksDir`, `e2e.specsDir`, `e2e
 - Gates and the next session
 - Slug
 - State file
+
+## User-facing output
+
+Every skill follows this, standalone or in a pipeline.
+
+- **Language.** Read config `language` at the start (`resolved.language` from `config-load.mjs`) and use it for everything the user reads: messages, summaries, and every `AskUserQuestion` question, header, label and description. Artifact files keep the headings of `locale`. Skill docs quote English text; say it in `language` in natural words. Korean: plain words, the consequence before the mechanism, no translationese.
+- **Shape of a message.** First line: where we are. In a pipeline that is `[n/N] <stage> <state>`, N being the run's node count (auto-dev 5, or 4 with `-no-e2e`; auto-e2e 3), e.g. `[2/5] TC 추출 완료` / `[2/5] TC extraction done`; standalone, the skill and what just happened. Last part: exactly **one** next action. A command goes alone in a code block. Never list several commands as alternatives; when the user has a real choice, ask one `AskUserQuestion` and act on the answer.
+- **Session handoff** (progress answer `Next step in a new session`): three lines, then the command. Run the clipboard script in "Gates and the next session" first.
+  1. what finished
+  2. what comes next
+  3. copied: `새 세션을 열고 붙여 넣으세요 (클립보드에 복사됨)` / `Open a new session and paste it (copied to the clipboard)`; not copied: `새 세션을 열고 아래 명령을 실행하세요` / `Open a new session and run this command`
+
+  then the resume command alone in a code block.
+- **Resume hint, once.** At the first handoff of a run (G1), add one plain sentence without a code block: running the same router with no argument always picks up where the run stopped. Do not repeat it at later handoffs.
 
 ## Graph principle
 
@@ -126,27 +141,28 @@ Progress options:
 
 | Option | Action |
 |---|---|
-| `Next step in a new session (Recommended)` | update state (`done` + `confirmedAt`, `next`) → print the resume command and copy it to the clipboard → stop |
+| `Next step in a new session (Recommended)` | update state (`done` + `confirmedAt`, `next`) → copy the resume command to the clipboard → the session handoff message (User-facing output) → stop |
 | `Continue in this session` | update state, then call the next node |
 | `Re-run this step` | take the correction, run the same node again (overwrites its artifact), return to the same gate |
 | `Stop here` | save state, list the artifacts |
 
 Why a new session: every node loads tens of thousands of characters of skill text into the context. Later nodes then pay that cost every turn and lose quality. Every artifact is a file, so nothing is lost by splitting.
 
-Resume command — always print it, and copy it with the first clipboard tool that exists (`pbcopy` macOS, `xclip` Linux/X11, `clip.exe` Windows/WSL). None, or the copy fails → print only.
+Resume command — always show it (User-facing output, session handoff), and copy it with the first clipboard tool that exists (`pbcopy` macOS, `xclip` Linux/X11, `clip.exe` Windows/WSL). None, or the copy fails → print only.
 
 ```bash
+# standalone tdd-implement handoff: CMD="/dev-pipeline:tdd-implement <worksDir>/<slug>/<slug>-plan.md"
 CMD="/dev-pipeline:<pipeline> <slug>"; COPIED=
 if command -v pbcopy >/dev/null 2>&1; then printf '%s' "$CMD" | pbcopy && COPIED=1
 elif command -v xclip >/dev/null 2>&1; then printf '%s' "$CMD" | xclip -selection clipboard && COPIED=1
 elif command -v clip.exe >/dev/null 2>&1; then printf '%s' "$CMD" | clip.exe && COPIED=1
 fi
-if [ -n "$COPIED" ]; then echo "Next: /clear → paste → Enter   (clipboard: $CMD)"; else echo "Next: /clear, then run: $CMD"; fi
+echo "copied=${COPIED:-0}"   # picks line 3 of the handoff message
 ```
 
 The last node's gate offers only `Done` / `Re-run this step` / `Stop here`. After `Done`, auto-dev-pipeline runs `superpowers:finishing-a-development-branch` (tdd-implement runs it at G3 instead only when standalone or with `-no-e2e`). The node report's conclusion is the basis: `Approvable` (`ko`: `승인 가능`) → recommend `Done`; a defect left (`Not approvable — …` / `승인 불가 — …`) → recommend `Re-run this step`; `Needs review` (`확인 필요`) → list the remaining items in the question and recommend nothing.
 
-**Gate text**:
+**Gate text** (in `language`, see User-facing output):
 - write non-ASCII text literally — never `\uXXXX` escapes (one wrong digit is a different, valid-looking character)
 - no unreplaced `[...]` placeholders
 - no code or paths in labels (put them in the description)

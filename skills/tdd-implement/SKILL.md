@@ -40,7 +40,7 @@ No argument → list `<worksDir>/*/tc.md` and `<worksDir>/*/*-plan.md` and let t
 node "${CLAUDE_PLUGIN_ROOT}/scripts/config-load.mjs" --check
 ```
 
-Missing or invalid → stop: "Run `/dev-pipeline:init` first." Below uses `worksDir`, `branchPrefix`, `locale`, `commands.*`, `unitTest.*`, `constraintsFile`, `approvalGates`, `issueKeyPattern`. Plan markers (`### Task N`, characterization, RED exempt) follow `${CLAUDE_PLUGIN_ROOT}/kit/artifact-labels.mjs` for `locale`.
+Missing or invalid → stop: "Run `/dev-pipeline:init` first." Below uses `worksDir`, `branchPrefix`, `language`, `locale`, `commands.*`, `unitTest.*`, `constraintsFile`, `approvalGates`, `issueKeyPattern`. Plan markers (`### Task N`, characterization, RED exempt) follow `${CLAUDE_PLUGIN_ROOT}/kit/artifact-labels.mjs` for `locale`. Talk to the user in `language` and shape every message by the contract's User-facing output (`../auto-e2e-pipeline/references/shared-contract.md`).
 
 superpowers must be enabled:
 
@@ -115,7 +115,7 @@ Plugins can be enabled per project, so user, project and project-local settings 
    - The only point where a human reads the RED contract (the test code).
    - Description: task count; wiring, characterization and RED-exempt tasks; the `## Implementation owners` summary; the style file applied; full-replacement tasks (scope · reason); paths with no layer.
    - With a state file, the progress question is one of this call's questions.
-   - Approved → with a state file, mark `tdd-plan` done and return to the router with the progress answer. Standalone, IMPL starts in a new session: `/dev-pipeline:tdd-implement <worksDir>/<slug>/<slug>-plan.md`.
+   - Approved → with a state file, mark `tdd-plan` done and return to the router with the progress answer. Standalone, IMPL starts in a new session: end with the session handoff (User-facing output) for `/dev-pipeline:tdd-implement <worksDir>/<slug>/<slug>-plan.md` — the contract's clipboard script with `CMD` set to that command.
 
 ### Global Constraints (into the plan)
 
@@ -185,7 +185,7 @@ Plugins can be enabled per project, so user, project and project-local settings 
    3. Append a fix task with its RED contract to the plan, re-run `plan-context.mjs`, and run only that task through SDD. That task also fixes the affected existing test expectations.
    4. Re-run from step 2 (final gate) and open G3 again. A rewound implementation is done only after a human has seen it at G3.
 
-   G3 passed → run SDD's `finishing-a-development-branch` here only when this skill runs standalone or the state's `options` have `-no-e2e`; otherwise the router runs it after the last gate's `Done`. Next is `dev-pipeline:e2e-test <worksDir>/<slug>/tc.md`; in a pipeline the router continues (and refreshes the predicted selectors first). Standalone, run `dev-pipeline:ui-selector-extractor` on the new files and correct the `e2e` TCs' checkpoint tables before generating specs: new-mode selectors were predictions.
+   G3 passed → run SDD's `finishing-a-development-branch` here only when this skill runs standalone or the state's `options` have `-no-e2e`; otherwise the router runs it after the last gate's `Done`. Next is `dev-pipeline:e2e-test <worksDir>/<slug>/tc.md`; in a pipeline the router continues (and refreshes the predicted selectors first). Standalone, run `dev-pipeline:ui-selector-extractor` on the new files and correct the `e2e` TCs' checkpoint tables before generating specs: new-mode selectors were predictions. Then end with the one next action, alone in a code block: `/dev-pipeline:e2e-test <worksDir>/<slug>/tc.md`.
 
 ---
 

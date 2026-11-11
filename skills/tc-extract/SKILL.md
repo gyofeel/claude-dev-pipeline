@@ -30,7 +30,7 @@ No PRD → take the feature scope and the ACs from the conversation and go on.
 node "${CLAUDE_PLUGIN_ROOT}/scripts/config-load.mjs" --check
 ```
 
-Missing or invalid → stop: "Run `/dev-pipeline:init` first." Every path, command and capability below comes from the resolved config (`worksDir`, `locale`, `ui.*`, `unitTest.*`, `e2e.*`, `source.*`). Headings and field names follow `${CLAUDE_PLUGIN_ROOT}/kit/artifact-labels.mjs` for `locale`. Two capability facts matter now:
+Missing or invalid → stop: "Run `/dev-pipeline:init` first." Every path, command and capability below comes from the resolved config (`worksDir`, `language`, `locale`, `ui.*`, `unitTest.*`, `e2e.*`, `source.*`). Headings and field names follow `${CLAUDE_PLUGIN_ROOT}/kit/artifact-labels.mjs` for `locale`; talk to the user in `language` and shape every message by the contract's User-facing output (`../auto-e2e-pipeline/references/shared-contract.md`). Two capability facts matter now:
 - `ui.stateBridge` is `null` → the `State` checkpoint type is unavailable. Propose no State rows; say so once in the summary.
 - `unitTest.excludedAreas[]` is quoted verbatim when classifying the unit layer.
 
@@ -117,7 +117,7 @@ Show:
   - overlapping specs
 - the `coverage-gate` result (`lint.errors` when not empty, or `error` when `ok` is false)
 
-With `--pipeline`, print this as the gate summary and stop; G2 is the router's. Standalone, confirm with one `AskUserQuestion`: `Confirm all` / `Enter corrections` / `Show a TC in full`. On confirmation, point to the next step:
+With `--pipeline`, print this as the gate summary and stop; G2 is the router's. Standalone, confirm with one `AskUserQuestion`: `Confirm all` / `Enter corrections` / `Show a TC in full`. On confirmation, end with the one next action for the mode, alone in a code block:
 - new mode → `/dev-pipeline:tdd-implement <worksDir>/<slug>/tc.md`, even with zero unit TCs: that only means all of the implementation is on the screen side
 - diff mode → `/dev-pipeline:e2e-test <worksDir>/<slug>/tc.md`
 
