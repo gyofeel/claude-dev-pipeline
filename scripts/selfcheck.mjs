@@ -22,6 +22,9 @@ const run = (script, args, opts = {}) => {
 const defaults = JSON.parse(run('config-load.mjs', ['--defaults']).out);
 assert.equal(defaults.$schema, 'dev-pipeline/1');
 assert.equal(defaults.e2e.interaction, 'pointer');
+assert.equal(defaults.e2e.ai, undefined);
+assert.equal(defaults.locale, 'en');
+assert.equal(defaults.e2e.report.loopThreshold, 3);
 assert.equal(defaults.style.defaultStyle, null);
 assert.equal(defaults.style.codeRoots, null);
 assert.deepEqual(defaults.style.noiseSubjects, []);
@@ -45,6 +48,10 @@ assert.ok(badStyle.errors.includes('style.noiseSubjects must be string[]'), badS
 assert.ok(badStyle.errors.includes('style.codeRoots must be null or string[]'), badStyle.errors.join('\n'));
 writeFileSync(path.join(tmp, '.agents/pipeline.config.json'), JSON.stringify({ $schema: 'dev-pipeline/1', commands: { unitTest: 'x' }, style: { noiseSubjects: ['('] } }));
 assert.ok(JSON.parse(run('config-load.mjs', ['--cwd', tmp, '--check']).out).errors.some((e) => e.startsWith('style.noiseSubjects has an invalid regex')));
+writeFileSync(path.join(tmp, '.agents/pipeline.config.json'), JSON.stringify({ $schema: 'dev-pipeline/1', commands: { unitTest: 'x' }, locale: 'fr', e2e: { ai: { provider: 'openai' } } }));
+const badLocale = JSON.parse(run('config-load.mjs', ['--cwd', tmp, '--check']).out);
+assert.ok(badLocale.errors.some((e) => e.startsWith('locale must be one of')));
+assert.ok(badLocale.warnings.some((w) => w.startsWith('e2e.ai is no longer used')));
 
 // keyboard without an adapter file: only a warning, since init runs before e2e-init creates it
 writeFileSync(path.join(tmp, '.agents/pipeline.config.json'), JSON.stringify({ $schema: 'dev-pipeline/1', commands: { unitTest: 'x' }, e2e: { interaction: 'keyboard' } }));

@@ -18,7 +18,7 @@ const tmp = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'redgate-selfcheck-'
 mkdirSync(path.join(tmp, '.agents'), { recursive: true });
 writeFileSync(path.join(tmp, 'package.json'), '{"name":"selfcheck","private":true}\n');
 writeFileSync(path.join(tmp, '.agents', 'pipeline.config.json'), JSON.stringify({ $schema: 'dev-pipeline/1', commands: { unitTest: 'x' } }));
-writeFileSync(path.join(tmp, 'plan.md'), '# plan\n');
+writeFileSync(path.join(tmp, 'plan.md'), '# plan\n\n### Task 1: a\n\n### Task 2: b\n**characterization** pins current behaviour\n');
 const testFile = path.join(tmp, 'a.test.js');
 writeFileSync(testFile, '// placeholder\n');
 
@@ -34,8 +34,12 @@ process.exit(Number(process.env.FAKE_EXIT ?? 0));
 `
 );
 
+const count = (assertions, status) => assertions.filter((a) => a.status === status).length;
 const report = (assertions, fileMessage = '') => ({
     numTotalTests: assertions.length,
+    numPassedTests: count(assertions, 'passed'),
+    numFailedTests: count(assertions, 'failed'),
+    numPendingTests: assertions.length - count(assertions, 'passed') - count(assertions, 'failed'),
     testResults: [{ name: testFile, message: fileMessage, assertionResults: assertions }]
 });
 const t = (title, status, failureMessages = []) => ({ title, fullName: `suite ${title}`, status, failureMessages, duration: 1 });
@@ -52,18 +56,20 @@ const runGate = (args, env = {}) => {
     assert.equal(r.status, 0, `exit code must be 0\n${r.stderr}`);
     return JSON.parse(r.stdout);
 };
-const red = (test, env) => runGate(['--phase', 'red', '--plan', 'plan.md', '--task', '1', '--file', testFile, '--test', test], env);
-const green = (test, env) => runGate(['--phase', 'green', '--plan', 'plan.md', '--task', '1', '--file', testFile, '--test', test], env);
+const target = (test) => ['--file', testFile, '--test', test, '--project', 'unit'];
+const red = (test, env) => runGate(['--phase', 'red', '--plan', 'plan.md', '--task', '1', ...target(test)], env);
+const green = (test, env) => runGate(['--phase', 'green', '--plan', 'plan.md', '--task', '1', ...target(test)], env);
+const char = (task, test, env) => runGate(['--phase', 'char', '--plan', 'plan.md', '--task', task, ...target(test)], env);
 
 try {
     // command builders
-    assert.deepEqual(buildCommand({ runner: 'vitest', runnerArgs: ['--project', 'unit'], file: '/f.test.js', outputFile: '/o.json' }), {
+    assert.deepEqual(buildCommand({ runner: 'vitest', project: 'unit', runnerArgs: ['--silent'], file: '/f.test.js', outputFile: '/o.json' }), {
         cmd: 'npx',
-        argv: ['vitest', 'run', '--reporter=json', '--outputFile=/o.json', '--project', 'unit', '/f.test.js']
+        argv: ['vitest', 'run', '--reporter=json', '--outputFile=/o.json', '--coverage.enabled=false', '--project', 'unit', '--silent', '/f.test.js']
     });
     assert.deepEqual(buildCommand({ runner: 'jest', file: '/f.test.js', outputFile: '/o.json' }), {
         cmd: 'npx',
-        argv: ['jest', '--json', '--outputFile=/o.json', '--runTestsByPath', '/f.test.js']
+        argv: ['jest', '--json', '--outputFile=/o.json', '--coverage=false', '--runTestsByPath', '/f.test.js']
     });
     assert.equal(normalize(report([t('UCP-01: x', 'failed', ['AssertionError: expected 1 to be 2'])])).tests[0].message, 'AssertionError: expected 1 to be 2');
 
@@ -76,7 +82,7 @@ try {
     // TARGET_NOT_FOUND
     out = red('UCP-09: nope', { result: report([t('UCP-01: adds', 'failed', ['AssertionError: expected 1 to be 2'])]) });
     assert.equal(out.failureClass, 'TARGET_NOT_FOUND');
-    assert.deepEqual(out.availableTests, ['UCP-01: adds']);
+    assert.deepEqual(out.availableTests, ['suite UCP-01: adds']);
 
     // WRONG_REASON{module}
     out = red('UCP-01: adds', { result: report([], "SyntaxError: Unexpected token '}'") });
@@ -105,10 +111,18 @@ try {
     assert.equal(out.failureClass, 'OK_RED');
     assert.equal(out.ok, true);
     assert.equal(out.routeTo, null);
-    const ledger = path.join(tmp, '.superpowers', 'sdd', 'plan', 'red-evidence.jsonl');
+    const ledger = path.join(tmp, 'red-evidence.jsonl');
     const lines = readFileSync(ledger, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
     assert.equal(lines.at(-1).failureClass, 'OK_RED');
-    assert.equal(readFileSync(path.join(tmp, '.superpowers', 'sdd', '.gitignore'), 'utf8'), '*\n');
+
+    // char: refused without the plan marker, recorded with it, and accepted as proof at GREEN
+    out = char('1', 'UCP-04: kept', { result: report([t('UCP-04: kept', 'passed')]) });
+    assert.equal(out.failureClass, 'GATE_ERROR');
+    out = char('2', 'UCP-04: kept', { result: report([t('UCP-04: kept', 'passed')]) });
+    assert.equal(out.failureClass, 'OK_CHAR');
+    assert.equal(out.ok, true);
+    out = green('UCP-04: kept', { result: report([t('UCP-04: kept', 'passed')]) });
+    assert.equal(out.failureClass, 'OK_GREEN');
 
     // WRONG_REASON (TypeError at RED)
     out = red('UCP-02: b', { result: report([t('UCP-02: b', 'failed', ['TypeError: x is not a function'])]) });
@@ -131,15 +145,27 @@ try {
     // --all with known-failures baseline
     writeFileSync(path.join(tmp, 'known.json'), JSON.stringify({ failures: ['a.test.js::suite UCP-03: other'] }));
     writeFileSync(path.join(tmp, '.agents', 'pipeline.config.json'), JSON.stringify({ $schema: 'dev-pipeline/1', commands: { unitTest: 'x' }, unitTest: { knownFailuresFile: 'known.json' } }));
-    out = runGate(['--phase', 'green', '--plan', 'plan.md', '--all'], { result: report([t('UCP-01: adds', 'passed'), t('UCP-03: other', 'failed', ['AssertionError: boom'])]) });
+    const allReport = report([t('UCP-01: adds', 'passed'), t('UCP-03: other', 'failed', ['AssertionError: boom'])]);
+    out = runGate(['--phase', 'green', '--plan', 'plan.md', '--all'], { result: allReport, exit: 1 });
     assert.equal(out.failureClass, 'OK_GREEN');
     assert.equal(out.collateral.knownFailuresSkipped, 1);
+    assert.deepEqual(out.audit.tasksWithoutEvidence, []);
+
+    // --all with no failure but a crashed file → RUN_INCOMPLETE, not OK_GREEN
+    out = runGate(['--phase', 'green', '--plan', 'plan.md', '--all'], { result: { ...report([], 'Error: worker exited'), numTotalTests: 2 }, exit: 1 });
+    assert.equal(out.failureClass, 'RUN_INCOMPLETE');
+    assert.equal(out.routeTo, 'controller:rerun');
 
     // GATE_ERROR: relative --file
-    out = runGate(['--phase', 'red', '--plan', 'plan.md', '--file', 'a.test.js', '--test', 'x']);
+    out = runGate(['--phase', 'red', '--plan', 'plan.md', '--file', 'a.test.js', '--test', 'x', '--project', 'unit']);
     assert.equal(out.failureClass, 'GATE_ERROR');
 
-    console.log('selfcheck-redgate: all 18 checks passed');
+    // --project is optional: no project filter reaches the runner
+    out = runGate(['--phase', 'red', '--plan', 'plan.md', '--task', '1', '--file', testFile, '--test', 'UCP-01'], { result: report([t('UCP-01: adds', 'failed', ['AssertionError: expected 1 to be 2'])]) });
+    assert.equal(out.failureClass, 'OK_RED');
+    assert.doesNotMatch(out.run.command, /--project/);
+
+    console.log('selfcheck-redgate: all checks passed');
 } finally {
     rmSync(tmp, { recursive: true, force: true });
 }

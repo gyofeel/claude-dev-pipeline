@@ -2,7 +2,8 @@
 /**
  * spec-lint — deterministic rule checker for generated Playwright specs (model-independent gate).
  *
- * Rules 1–20 are the contract shared with the spec-writer / spec-reviewer agents.
+ * Rules 1–22 are the contract shared with the spec-writer / spec-reviewer agents.
+ * Specs on the kit fixture (`test.use({ e2e: … })`) skip 1, 2, 5–7, 12, 13 and 15: the fixture owns them.
  * Rules 16 and 17 are context-dependent and left to the reviewer (llmResidual).
  *
  * Usage: node spec-lint.mjs <spec.js> [--config <pipeline.config.json>] [--cwd <root>]
@@ -35,7 +36,7 @@ const SEV = { CRITICAL: 'Critical', ERROR: 'Error', WARNING: 'Warning' };
 
 export const LLM_RESIDUAL = [
     { rule: 16, note: 'no fixed sleeps (waitForTimeout) right after an interaction — wait on a condition instead' },
-    { rule: 17, note: 'soft-track applied to assertions touching e2e.softTrack.patterns; navigation plan compiled faithfully' }
+    { rule: 17, note: 'soft cp (cp(…, { soft: true })) used only for checkpoints touching e2e.softTrack.patterns; navigation plan compiled faithfully' }
 ];
 
 const lineOf = (src, i) => (i < 0 ? null : src.slice(0, i).split('\n').length);
@@ -68,7 +69,13 @@ export const extractArgs = (src, openParen) => {
 
 export const lint = (src, { fileName = '', cfg = {} } = {}) => {
     const v = [];
-    const add = (rule, severity, idx, message, fix) => v.push({ rule, severity, line: lineOf(src, idx), message, fix });
+    // Specs on the kit fixture have no afterEach skeleton; the fixture owns verdict, attachments and the throw.
+    const fixtureMode = /\btest\.use\(\s*\{\s*e2e\s*:/.test(src);
+    const FIXTURE_COVERED = new Set([1, 2, 5, 6, 7, 12, 13, 15]);
+    const add = (rule, severity, idx, message, fix) => {
+        if (fixtureMode && FIXTURE_COVERED.has(rule)) return;
+        v.push({ rule, severity, line: lineOf(src, idx), message, fix });
+    };
     const e2e = cfg.e2e || {};
 
     // 1 afterEach
@@ -78,7 +85,8 @@ export const lint = (src, { fileName = '', cfg = {} } = {}) => {
     // 3 expect when criteria exist
     const critMatch = src.match(/const SUCCESS_CRITERIA\s*=\s*\[([\s\S]*?)\];/);
     const critCount = critMatch ? (critMatch[1].match(/\bid:/g) || []).length : 0;
-    if (critCount > 0 && !/\bexpect\s*\(/.test(src)) add(3, SEV.ERROR, -1, 'SUCCESS_CRITERIA declared but no expect( call', 'assert each checkpoint with expect()');
+    // expect.poll / expect.soft count too; a formatter may put `.poll` on the next line
+    if (critCount > 0 && !/\bexpect\s*(?:\.\s*(?:poll|soft)\s*)?\(/.test(src)) add(3, SEV.ERROR, -1, 'SUCCESS_CRITERIA declared but no expect( call', 'assert each checkpoint with expect()');
     // 4, 5
     if (!src.includes('const CONSOLE_ERROR_WHITELIST')) add(4, SEV.ERROR, -1, 'const CONSOLE_ERROR_WHITELIST missing', 'declare it');
     if (!src.includes('const ACCEPTABLE_STATUSES')) add(5, SEV.ERROR, -1, 'const ACCEPTABLE_STATUSES missing', 'declare it');
@@ -135,6 +143,20 @@ export const lint = (src, { fileName = '', cfg = {} } = {}) => {
     }
     // 15 step isolation
     if (critCount >= 2 && !src.includes('test.step(')) add(15, SEV.WARNING, -1, `${critCount} checkpoints without test.step() isolation`, 'wrap each checkpoint in test.step()');
+    // 21 every checkpoint runs through cp()
+    // Scoped from each declaration to the next: multi-case specs repeat ids per describe
+    if (fixtureMode) {
+        const decls = [...src.matchAll(/const SUCCESS_CRITERIA\s*=\s*\[([\s\S]*?)\];/g)];
+        decls.forEach((d, i) => {
+            const scope = src.slice(d.index, decls[i + 1]?.index ?? src.length);
+            for (const [, id] of d[1].matchAll(/id:\s*'([^']+)'/g)) {
+                if (!scope.includes(`cp('${id}'`)) add(21, SEV.ERROR, d.index, `checkpoint ${id} is never run through cp()`, `wrap its assertion in await cp('${id}', async () => { … })`);
+            }
+        });
+    }
+    // 22 fixture specs must take test from the kit
+    if (fixtureMode && /import\s*\{[^}]*\btest\b[^}]*\}\s*from\s*'@playwright\/test'/.test(src))
+        add(22, SEV.ERROR, -1, 'test is imported from @playwright/test in a fixture spec', 'import { test, expect } from the kit index');
     // 18 console methods
     if (Array.isArray(e2e.consoleAllowedMethods)) {
         const re = /console\.(\w+)\s*\(/g;
@@ -156,7 +178,7 @@ const isMain = process.argv[1] && path.resolve(process.argv[1]) === path.resolve
 if (isMain) {
     const argv = process.argv.slice(2);
     const fail = (msg) => console.log(JSON.stringify({ pass: false, violations: [{ rule: 0, severity: SEV.ERROR, line: null, message: msg, fix: 'node spec-lint.mjs <spec.js> [--config <path>]' }], llmResidual: LLM_RESIDUAL }));
-    if (argv.includes('--help')) { console.log(JSON.stringify({ usage: 'node spec-lint.mjs <spec.js> [--config <path>] [--cwd <root>]', rules: '1–15,18–20 deterministic; 16,17 llmResidual' }, null, 2)); process.exit(0); }
+    if (argv.includes('--help')) { console.log(JSON.stringify({ usage: 'node spec-lint.mjs <spec.js> [--config <path>] [--cwd <root>]', rules: '1–15,18–22 deterministic (1, 2, 5–7, 12, 13, 15 skipped for kit-fixture specs); 16,17 llmResidual' }, null, 2)); process.exit(0); }
     const opt = (n) => (argv.includes(n) ? argv[argv.indexOf(n) + 1] : null);
     const file = argv.find((a, i) => !a.startsWith('--') && argv[i - 1] !== '--config' && argv[i - 1] !== '--cwd');
     if (!file) { fail('spec path missing'); process.exit(0); }

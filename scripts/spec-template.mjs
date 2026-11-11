@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 /**
- * spec-template — deterministic Playwright spec skeleton assembler.
+ * spec-template — deterministic Playwright spec assembler.
  *
- * Generates everything except the body slot `// <<< TEST_BODY >>>` from an input JSON,
- * so the mechanical structure (imports, describe/setTimeout, beforeEach/afterEach,
- * declarations, verifications → SUCCESS_CRITERIA + test.step/expect) is identical no
- * matter which model drives spec-writer. See references/adapter-contract.md.
+ * Stamps the whole spec from an input JSON: kit fixture import, test.use({ e2e }) verdict options,
+ * describe/setTimeout, beforeEach (mockAll → goto → adapter.waitForAppReady), SUCCESS_CRITERIA and
+ * one cp() per checkpoint. The kit fixture owns collector, verdict, report and screenshot, so specs
+ * do not repeat them. Only the body slot `// <<< TEST_BODY >>>` is left to spec-writer, and only
+ * when no `slotBody` is given. Interaction goes through `adapter.press` / `adapter.findAndEnter`.
  *
  * Usage:
  *   node spec-template.mjs <input.json> [--config <pipeline.config.json>] [--write] [--cwd <repoRoot>]
@@ -17,40 +18,41 @@
 
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
-import { readFileSync as _rf } from 'node:fs';
 import { loadConfig, DEFAULTS } from './config-load.mjs';
+import { ARTIFACT_LABELS, labelsFor } from '../kit/artifact-labels.mjs';
 
 /** Config for CLI use: --config <json> (tests) or the repo's pipeline.config.json via config-load. */
 async function loadConfigCompat({ cwd, configPath }) {
-    if (configPath) {
-        const raw = JSON.parse(_rf(configPath, 'utf8'));
-        const merge = (a, b) => { const o = { ...a }; for (const [k, v] of Object.entries(b || {})) o[k] = v && typeof v === 'object' && !Array.isArray(v) && a[k] && typeof a[k] === 'object' ? merge(a[k], v) : v; return o; };
-        return { cfg: merge(DEFAULTS, raw), root: cwd };
-    }
+    const merge = (a, b) => { const o = { ...a }; for (const [k, v] of Object.entries(b || {})) o[k] = v && typeof v === 'object' && !Array.isArray(v) && a[k] && typeof a[k] === 'object' ? merge(a[k], v) : v; return o; };
+    if (configPath) return { cfg: merge(DEFAULTS, JSON.parse(readFileSync(configPath, 'utf8'))), root: cwd };
     const r = loadConfig(cwd);
     if (!r.ok) throw new Error(`config invalid: ${(r.errors || []).join('; ')}`);
-    return { cfg: r.resolved, root: r.root };
+    // repo-relative paths, so kit/adapter imports are computed against the repo-relative outputPath
+    return { cfg: merge(DEFAULTS, r.raw), root: r.root };
 }
 
 export const INPUT_SCHEMA = {
     tcName: 'string (required) — test title; also TC_NAME',
     outputPath: 'string (required) — repo-relative spec path; must end with .spec.js and start with e2e.specFilePrefix',
-    screen: 'string (required) — feature/page area, passed to analyze() as domain',
+    screen: 'string (required; alias domain) — feature/page area shown in the report',
     startUrl: "string (default '/')",
     timeout: 'number ms (default 120000) — test.setTimeout',
-    renderSelector: 'string | null — CSS the app must render before the body runs',
-    readyExpr: 'string | null — JS boolean the app must satisfy before the body runs (TC render condition of kind expr); overrides config e2e.readyExpr for this spec',
+    navigationStrategy: "'A' | 'C2' (default 'A') — C2 adds the testInfo param and never isolates",
+    renderSelector: 'string | null — target the app must render before the body runs',
+    readyExpr: 'string | null — JS boolean the app must satisfy before the body runs',
     fixtures: "{ '<url glob>': '<fixture file | inline object>' } (default {})",
-    verifications: "[{ type: 'DOM'|'Focus'|'State'|'Runtime', target?: string, path?: string, condition: string, desc?: string }]",
-    successCriteria: 'string — natural-language success statement for analyze()',
-    acceptanceCriteria: 'string | null — extra scenario sentence for analyze()',
-    notes: 'string | null — header comment',
+    isolate: 'boolean — default: true when a fixtures pattern is listed in e2e.bootFixtures',
+    verifications:
+        "[{ type: 'DOM'|'Focus'|'State'|'Runtime'|'URL'|'Popup'|'Observe' (or the locale's tc.cp label), selector? (alias target), path?, condition?, desc?, soft?, before? (not Observe), window? }]",
+    successCriteriaText: 'string (alias successCriteria) — success statement shown in the report',
+    notes: 'string | string[] | null — header comment lines',
     consoleErrorWhitelist: 'string[] (default [])',
     networkErrorWhitelist: 'string[] (default []) — merged with config e2e.networkNoiseWhitelist',
-    acceptableStatuses: "string[] (default ['PASS'])",
     navigationPlan: 'object | null — emitted as a comment above the body slot; spec-writer compiles it',
-    liveData: 'boolean — adds the @live-data header comment and disables request isolation',
-    testBody: 'string | null — replaces the body slot when given (rare; used by selfcheck)'
+    setupBody: 'string | null — code after the render wait, before the before-checkpoints',
+    slotBody: "string | null — code for the body slot; '' means no interaction",
+    testBody: 'string | null — whole test body (replaces setupBody, slotBody and checkpoints)',
+    cases: '[{ tcName, verifications, successCriteriaText?, setupBody?, slotBody?, testBody?, screen? }] — TCs sharing one entry, one describe each'
 };
 
 const BODY_MARKER = '        // <<< TEST_BODY >>> — spec-writer fills navigation / interaction logic here.';
@@ -75,125 +77,176 @@ export const parseTarget = (raw) => {
 };
 
 const targetLiteral = (t) =>
-    `{ by: ${jsStr(t.by)}, value: ${jsStr(t.value)}${t.name ? `, name: ${jsStr(t.name)}` : ''}${
-        t.nth != null ? `, nth: ${Number(t.nth)}` : ''
-    } }`;
+    `{ by: ${jsStr(t.by)}, value: ${jsStr(t.value)}${t.name ? `, name: ${jsStr(t.name)}` : ''} }`;
 
-const stateAccessor = (globalExpr, p) => `${globalExpr}?.${String(p).split('.').join('?.')}`;
+const isMatcherCall = (c) => /^(not\.)?to\w+\(.*\)$/.test(c);
 
-const defaultDesc = (v) => {
-    if (v.type === 'DOM') return `${v.target} — ${v.condition || 'visible'}`;
-    if (v.type === 'Focus') return `focus ${v.condition || ''}`.trim();
-    if (v.type === 'State') return `${v.path} ${v.condition || 'truthy'}`;
-    if (v.type === 'Runtime') return `runtime ${v.condition || 'noConsoleErrors'}`;
-    return 'checkpoint';
+// Checkpoint condition → matcher. An unknown value appended as-is would assert nothing, so stop.
+const toMatcher = (condition, aliases) => {
+    const c = String(condition).trim();
+    if (aliases[c]) return aliases[c];
+    // containers with several children (toast title + body) never match a whole-text equality
+    const text = c.match(/^(not )?hasText\((.*)\)$/);
+    if (text) return `${text[1] ? 'not.' : ''}toContainText(${text[2]})`;
+    const noClass = c.match(/^not hasClass\s+(\S+)$/);
+    if (noClass) return `not.toHaveClass(/${noClass[1]}/)`;
+    const re = c.match(/^matches\s+(\/.*\/\w*)$/);
+    if (re) return `toMatch(${re[1]})`;
+    if (isMatcherCall(c)) return c;
+    throw new Error(`unknown checkpoint condition: ${c}`);
 };
 
-// ── condition compilers ─────────────────────────────────────
-const domMatcher = (cond) => {
-    const c = (cond || 'visible').trim();
-    let m;
-    if (c === 'visible') return { expect: 'toBeVisible()', not: false };
-    if (c === 'hidden') return { expect: 'toBeHidden()', not: false };
-    if ((m = c.match(/^hasText\((.+)\)$/))) return { expect: `toHaveText(${m[1]})`, not: false };
-    if ((m = c.match(/^not hasClass\((.+)\)$/))) return { expect: `toHaveClass(new RegExp(${m[1]}))`, not: true };
-    if ((m = c.match(/^hasClass\((.+)\)$/))) return { expect: `toHaveClass(new RegExp(${m[1]}))`, not: false };
-    if ((m = c.match(/^count\((\d+)\)$/))) return { expect: `toHaveCount(${m[1]})`, not: false };
-    throw new Error(`DOM condition not supported: ${c}`);
+// For string values (URL parts, popup URL, observed texts): hasText is a locator-only matcher.
+const toValueMatcher = (condition) => {
+    const c = String(condition).trim();
+    const text = c.match(/^(not )?hasText\((.*)\)$/);
+    if (text) return `${text[1] ? 'not.' : ''}toContain(${text[2]})`;
+    return toMatcher(c, { exists: 'toBeTruthy()' });
 };
 
-const stateMatcher = (cond) => {
-    const c = (cond || 'truthy').trim();
-    let m;
-    if (c === 'truthy') return { expect: 'toBeTruthy()', passed: (v) => `!!${v}` };
-    if (c === 'falsy') return { expect: 'toBeFalsy()', passed: (v) => `!${v}` };
-    if ((m = c.match(/^toBe\((.+)\)$/))) return { expect: `toBe(${m[1]})`, passed: (v) => `${v} === ${m[1]}` };
-    if ((m = c.match(/^toEqual\((.+)\)$/)))
-        return { expect: `toEqual(${m[1]})`, passed: (v) => `JSON.stringify(${v}) === JSON.stringify(${m[1]})` };
-    if ((m = c.match(/^matches\s*(\/.+\/[a-z]*)$/))) return { expect: `toMatch(${m[1]})`, passed: (v) => `${m[1]}.test(String(${v}))` };
-    if ((m = c.match(/^length\((\d+)\)$/))) return { expect: `toHaveLength(${m[1]})`, passed: (v) => `${v}?.length === ${m[1]}` };
-    throw new Error(`State condition not supported: ${c}`);
+const URL_PARTS = ['pathname', 'search', 'href'];
+const CP_KEYS = { dom: 'DOM', focus: 'Focus', state: 'State', runtime: 'Runtime', url: 'URL', popup: 'Popup', observe: 'Observe' };
+const KEY_OF_TYPE = Object.fromEntries(Object.entries(CP_KEYS).map(([k, t]) => [t, k]));
+// Every locale's tc.cp label names a type, so a TC written in either locale assembles
+const TYPE_OF_LABEL = Object.fromEntries(
+    Object.values(ARTIFACT_LABELS).flatMap((l) => Object.entries(CP_KEYS).map(([k, type]) => [l[`tc.cp.${k}`], type]))
+);
+const typeOf = (v) => {
+    const type = TYPE_OF_LABEL[v.type];
+    if (!type) throw new Error(`unknown verification type: ${v.type}`);
+    return type;
 };
 
-const focusCheck = (cond) => {
-    const c = (cond || '').trim();
-    let m;
-    if ((m = c.match(/^matches\((.+)\)$/))) return `focusInfo.matches(${m[1]})`;
-    if ((m = c.match(/^hasText\((.+)\)$/))) return `focusInfo.text.includes(${m[1]})`;
-    if ((m = c.match(/^includes\((.+)\)$/))) return `focusInfo.id.includes(${m[1]})`;
-    throw new Error(`Focus condition not supported: ${c}`);
+const indentCode = (code) => String(code).trim().replace(/^(?=.)/gm, '        ');
+
+const defaultDesc = (v, locale) => {
+    const type = typeOf(v);
+    const condition = v.condition ?? (type === 'DOM' ? 'visible' : '');
+    return [labelsFor(locale)[`tc.cp.${KEY_OF_TYPE[type]}`], v.selector ?? v.path, condition]
+        .filter(Boolean)
+        .join(' ');
 };
 
-const runtimeCheck = (cond) => {
-    const c = (cond || 'noConsoleErrors').trim();
-    let m;
-    if (c === 'noConsoleErrors' || c === 'isEmpty') return '(runtime.consoleErrors ?? []).length === 0';
-    if (c === 'noNetworkErrors') return '(runtime.networkErrors ?? []).length === 0';
-    if ((m = c.match(/^consoleErrors\s*<\s*(\d+)$/))) return `(runtime.consoleErrors ?? []).length < ${m[1]}`;
-    if ((m = c.match(/^filteredCount\s*<\s*(\d+)$/))) return `(runtime.consoleErrors ?? []).length < ${m[1]}`;
-    throw new Error(`Runtime condition not supported: ${c}`);
+const buildSuccessCriteria = (verifications, locale) => {
+    if (!verifications?.length) return 'const SUCCESS_CRITERIA = [];';
+    const lines = verifications.map((v, i) => `    { id: ${jsStr(cpId(i))}, desc: ${jsStr(v.desc || defaultDesc(v, locale))} }`);
+    return `const SUCCESS_CRITERIA = [\n${lines.join(',\n')}\n];`;
 };
 
-const buildSuccessCriteria = (verifications) =>
-    `const SUCCESS_CRITERIA = [\n${verifications
-        .map((v, i) => `    { id: ${jsStr(cpId(i))}, desc: ${jsStr(v.desc || defaultDesc(v))}, passed: false }`)
-        .join(',\n')}\n];`;
-
-const buildSteps = (verifications, cfg) => {
+// verifications[] → cp() blocks; cp records the flag and actual value. `before` checkpoints run ahead of the slot.
+const buildVerificationSteps = (verifications, cfg, before = false) => {
     const globalExpr = cfg.ui?.stateBridge?.globalExpr || null;
-    const focusExpr = cfg.ui?.stateBridge?.focusExpr || null;
-    return verifications
+    const focusExpr = cfg.ui?.stateBridge?.focusExpr || "document.activeElement?.outerHTML.split('>')[0]";
+    let settled = false;
+    let watched = false;
+    return (verifications || [])
         .map((v, i) => {
-            const id = cpId(i);
-            const title = jsStr(`${id}: ${v.desc || defaultDesc(v)}`);
-            if (v.type === 'DOM') {
-                const t = parseTarget(v.target);
-                const { expect: mt, not } = domMatcher(v.condition);
-                return `        await test.step(${title}, async () => {
-            await expect(adapter.locator(page, ${targetLiteral(t)}))${not ? '.not' : ''}.${mt};
-            SUCCESS_CRITERIA[${i}].passed = true;
-        });`;
+            if (Boolean(v.before) !== before) return null;
+            const id = jsStr(cpId(i));
+            const opts = v.soft ? ', { soft: true }' : '';
+            const type = typeOf(v);
+            if (type === 'URL') {
+                if (!URL_PARTS.includes(v.path)) throw new Error(`unknown URL part: ${v.path}`);
+                const read = `page.evaluate(() => location.${v.path})`;
+                return `        await cp(${id}, async (seen) => {
+            await expect.poll(async () => seen(await ${read})).${toValueMatcher(v.condition)};
+            return ${read};
+        }${opts});`;
             }
-            if (v.type === 'Focus') {
-                const check = focusCheck(v.condition);
-                const testId = cfg.ui?.testIdAttribute || 'data-testid';
-                // the check runs inside the page: matches() needs the live element.
-                const inPage = focusExpr
-                    ? `await page.evaluate(() => { const id = String(${focusExpr} ?? ''); const focusInfo = { id, text: id, matches: () => false }; return ${check}; })`
-                    : `await page.evaluate(() => { const el = document.activeElement; const focusInfo = { id: el?.id || el?.getAttribute(${jsStr(testId)}) || '', text: el?.textContent?.trim() || '', matches: (sel) => !!el && el.matches(sel) }; return ${check}; })`;
-                return `        await test.step(${title}, async () => {
-            const focused = ${inPage};
-            expect(focused).toBe(true);
-            SUCCESS_CRITERIA[${i}].passed = focused;
-        });`;
+            if (type === 'Popup') {
+                if (v.path === 'count') {
+                    return `        await cp(${id}, async () => {
+            await expect.poll(() => popups.length).${toMatcher(v.condition || 'toBe(1)', {})};
+            return String(popups.length);
+        }${opts});`;
+                }
+                if (v.path !== 'url') throw new Error(`unknown popup target: ${v.path}`);
+                const url = "popups[0]?.url() ?? ''";
+                return `        await cp(${id}, async (seen) => {
+            await expect.poll(() => seen(${url})).${toValueMatcher(v.condition)};
+            return ${url};
+        }${opts});`;
             }
-            if (v.type === 'State') {
-                if (!globalExpr) throw new Error(`State verification "${v.path}" requires ui.stateBridge.globalExpr in config`);
-                const { expect: mt, passed } = stateMatcher(v.condition);
-                return `        await test.step(${title}, async () => {
-            const stateVal = await page.evaluate(() => ${stateAccessor(globalExpr, v.path)} ?? null); // @state-path ${v.path}
-            expect(stateVal).${mt};
-            SUCCESS_CRITERIA[${i}].passed = ${passed('stateVal')};
-        });`;
+            if (type === 'Observe') {
+                const c = String(v.condition ?? '').match(/^(peak|texts)\s+(.+)$/);
+                if (!c) throw new Error(`unknown observe condition: ${v.condition}`);
+                // the window is read once, after the interaction
+                if (v.before) throw new Error(`Observe checkpoint ${v.selector} cannot use before: true`);
+                // wait for the window once; every observe checkpoint reads the same samples
+                const read = watched ? '' : `        const watched = await readWatch(page, ${Number(v.window ?? 3000)});\n\n`;
+                watched = true;
+                const [value, matcher] =
+                    c[1] === 'peak' ? ['peak', toMatcher(c[2], {})] : ["texts.join(' | ')", toValueMatcher(c[2])];
+                return `${read}        await cp(${id}, async (seen) => {
+            const { peak, texts } = watched[${jsStr(v.selector)}] ?? { peak: 0, texts: [] };
+            seen(\`peak \${peak} · \${texts.join(' | ')}\`);
+            expect(${value}).${matcher};
+        }${opts});`;
             }
-            if (v.type === 'Runtime') {
-                return `        await test.step(${title}, async () => {
-            const raw = await collector.collect();
-            // apply the same whitelists afterEach uses, so in-body checks and the verdict agree
-            const runtime = {
-                ...raw,
-                consoleErrors: (raw.consoleErrors ?? []).filter(
-                    (e) => !CONSOLE_ERROR_WHITELIST.some((p) => e.text?.includes(p)) && !NETWORK_ERROR_WHITELIST.some((p) => e.url?.includes(p))
-                ),
-                networkErrors: (raw.networkErrors ?? []).filter((e) => !NETWORK_ERROR_WHITELIST.some((p) => e.url?.includes(p)))
-            };
-            const ok = ${runtimeCheck(v.condition)};
-            expect(ok).toBe(true);
-            SUCCESS_CRITERIA[${i}].passed = ok;
-        });`;
+            if (type === 'DOM') {
+                const loc = `adapter.locator(page, ${targetLiteral(parseTarget(v.selector))})`;
+                const matcher = toMatcher(v.condition || 'visible', { visible: 'toBeVisible()', hidden: 'toBeHidden()' });
+                // expected text is often a guess, so keep what the screen showed even when it fails
+                if (/hasText\(/.test(v.condition ?? '')) {
+                    return `        await cp(${id}, async (seen) => {
+            try {
+                await expect(${loc}).${matcher};
+            } finally {
+                seen((await ${loc}.allTextContents()).join(' | '));
             }
-            throw new Error(`Unknown verification type: ${v.type}`);
+        }${opts});`;
+                }
+                return `        await cp(${id}, async () => {
+            await expect(${loc}).${matcher};
+        }${opts});`;
+            }
+            if (type === 'Focus') {
+                const c = String(v.condition || v.path || '').trim();
+                if (!c) throw new Error('empty focus condition — toContain(\'\') would always pass');
+                const included = c.match(/^includes\((.*)\)$/);
+                // a call-shaped condition (matches(), hasText()) would otherwise be asserted as literal text
+                if (!included && !isMatcherCall(c) && /^(not\s+)?\w+\(.*\)$/.test(c)) throw new Error(`unknown checkpoint condition: ${c}`);
+                const matcher = included ? `toContain(${included[1]})` : isMatcherCall(c) ? c : `toContain(${jsStr(c)})`;
+                return `        await cp(${id}, async () => {
+            const focusId = await page.evaluate(() => String(${focusExpr} ?? ''));
+            expect(focusId).${matcher};
+            return focusId;
+        }${opts});`;
+            }
+            if (type === 'Runtime') {
+                const kind = v.path;
+                const condition = String(v.condition || 'isEmpty').trim();
+                const below = condition.match(/^filteredCount\s*<\s*(\d+)$/);
+                if (!['consoleErrors', 'networkErrors'].includes(kind)) throw new Error(`unknown runtime target: ${kind}`);
+                if (!below && condition !== 'isEmpty') throw new Error(`unknown checkpoint condition: ${condition}`);
+                // counting right after a transition misses errors from late responses
+                const settle = settled ? '' : '        await collector.settle();\n\n';
+                settled = true;
+                const assertion = below
+                    ? `expect(${kind}.length).toBeLessThan(${below[1]});`
+                    : `expect(${kind}.map((e) => ${kind === 'networkErrors' ? 'e.url' : 'e.text ?? e.url'})).toEqual([]);`;
+                return `${settle}        await cp(${id}, async () => {
+            const { ${kind} } = runtimeErrors(collector, {
+                consoleErrorWhitelist: CONSOLE_ERROR_WHITELIST,
+                networkErrorWhitelist: NETWORK_ERROR_WHITELIST
+            });
+            ${assertion}
+            return String(${kind}.length);
+        }${opts});`;
+            }
+            if (!globalExpr) throw new Error(`State verification "${v.path}" requires ui.stateBridge.globalExpr in config`);
+            const matcher = toMatcher(v.condition || 'truthy', {
+                truthy: 'toBeTruthy()',
+                falsy: 'toBeFalsy()',
+                exists: 'not.toBeNull()'
+            });
+            return `        await cp(${id}, async (seen) => {
+            const stateVal = seen(await page.evaluate(() => ${globalExpr}?.${String(v.path).split('.').join('?.')} ?? null)); // @state-path ${v.path}
+            expect(stateVal).${matcher};
+            return stateVal;
+        }${opts});`;
         })
+        .filter(Boolean)
         .join('\n\n');
 };
 
@@ -203,43 +256,86 @@ const relImport = (fromDir, toFile) => {
     return r;
 };
 
-export const buildSpec = (input, cfg) => {
+export const buildSpec = (input, cfg = DEFAULTS) => {
     const {
         tcName,
         outputPath,
-        screen,
         startUrl = '/',
         timeout = 120000,
+        navigationStrategy = 'A',
         renderSelector = null,
         readyExpr = null,
-        fixtures = {},
-        verifications = [],
-        successCriteria = '',
-        acceptanceCriteria = null,
-        notes = null,
         consoleErrorWhitelist = [],
         networkErrorWhitelist = [],
-        acceptableStatuses = ['PASS'],
+        fixtures = {},
+        verifications = [],
+        notes = null,
         navigationPlan = null,
-        liveData = false,
-        testBody = null
+        cases = null
     } = input;
-    if (!tcName || !outputPath || !screen) throw new Error('missing required fields: tcName, outputPath, screen');
-
+    const screen = input.screen ?? input.domain;
     const e2e = cfg.e2e || {};
+    const locale = cfg.locale || 'en';
+
+    // cases[]: TCs sharing one entry (START_URL, fixtures, render wait) → one describe each
+    const caseList = (
+        Array.isArray(cases) && cases.length
+            ? cases
+            : [
+                  {
+                      tcName,
+                      screen,
+                      verifications,
+                      successCriteriaText: input.successCriteriaText ?? input.successCriteria,
+                      setupBody: input.setupBody,
+                      slotBody: input.slotBody,
+                      testBody: input.testBody
+                  }
+              ]
+    ).map((c) => ({ ...c, verifications: (c.verifications || []).map((v) => ({ ...v, selector: v.selector ?? v.target })) }));
+    const isMulti = caseList.length > 1;
+    const primaryName = tcName ?? caseList[0].tcName;
+    if (!primaryName || !outputPath || !screen) throw new Error('missing required fields: tcName (or cases[0].tcName), outputPath, screen');
+    for (const c of caseList) if (!c.tcName) throw new Error('cases[] entry without tcName');
+    // a spec with nothing to assert passes on whatever screen it lands
+    for (const c of caseList) if (!c.testBody && !c.verifications.length) throw new Error(`${c.tcName}: no checkpoints`);
+
     const fileName = path.basename(outputPath);
     const prefix = e2e.specFilePrefix || '';
     if (!fileName.endsWith('.spec.js')) throw new Error(`outputPath must end with .spec.js: ${fileName}`);
     if (prefix && !fileName.startsWith(prefix)) throw new Error(`outputPath file name must start with "${prefix}": ${fileName}`);
     if (timeout < 60000) throw new Error('timeout must be >= 60000');
 
-    const outDir = path.dirname(outputPath);
-    const kitImport = relImport(outDir, path.posix.join(e2e.kitDir || 'e2e/kit', 'index.js'));
-    const adapterImport = relImport(outDir, e2e.adapterModule || 'e2e/e2e.adapter.js');
+    const isC2 = navigationStrategy === 'C2';
+    // isolating without the boot fixtures answers the app's boot calls with {} and it never starts
+    const bootFixtures = e2e.bootFixtures || [];
+    const isolated = !isC2 && (input.isolate ?? Object.keys(fixtures).some((k) => bootFixtures.includes(k)));
 
-    const header = [`// ${fileName}`, `// ${tcName}`];
-    if (liveData) header.push('// @live-data — depends on live API data; consider excluding from CI');
-    if (notes) header.push(`// notes: ${notes}`);
+    const checked = caseList.flatMap((c) => (c.testBody ? [] : c.verifications || []));
+    const cpTypes = new Set(checked.map(typeOf));
+    const usesRuntime = cpTypes.has('Runtime');
+    const usesPopup = cpTypes.has('Popup');
+    const watchList = [...new Set(checked.filter((v) => typeOf(v) === 'Observe').map((v) => v.selector))];
+
+    const outDir = path.dirname(outputPath);
+    const kitNames = ['test', 'expect', 'mockAll'];
+    if (usesRuntime) kitNames.push('runtimeErrors');
+    if (watchList.length) kitNames.push('readWatch', 'watchSelectors');
+    // always imported: the body slot may call them, and the assembled file is never hand-edited
+    kitNames.push('captureFailureDiagnostics', 'captureNavigationCensus');
+    const imports = [
+        `import { ${kitNames.join(', ')} } from ${jsStr(relImport(outDir, path.posix.join(e2e.kitDir || 'e2e/kit', 'index.js')))};`,
+        `import adapter from ${jsStr(relImport(outDir, e2e.adapterModule || 'e2e/e2e.adapter.js'))};`
+    ];
+
+    const header = [`// ${fileName}`];
+    if (isMulti) {
+        header.push(`// ${caseList.map((c) => c.tcName).join(' · ')}`);
+        header.push('// TCs sharing one entry — run one: npx playwright test <this file> --grep "<TC name>"');
+    } else header.push(`// ${primaryName}`);
+    if (notes) {
+        [notes].flat().join('\n').split('\n').forEach((line, i) => header.push(`// ${i ? '' : 'notes: '}${line}`));
+    }
 
     const fixtureKeys = Object.keys(fixtures);
     const mockArg = fixtureKeys.length
@@ -250,7 +346,27 @@ export const buildSpec = (input, cfg) => {
     const readyOpts = [];
     if (renderSelector) readyOpts.push(`renderSelector: ${jsStr(renderSelector)}`);
     if (readyExpr) readyOpts.push(`readyExpr: ${jsStr(readyExpr)}`);
-    const readyArg = readyOpts.length ? `{ ${readyOpts.join(', ')} }` : '{}';
+    const readyCall = `await adapter.waitForAppReady(page${readyOpts.length ? `, { ${readyOpts.join(', ')} }` : ''});`;
+
+    const preBody = [
+        watchList.length &&
+            `        // start sampling before the interaction so short-lived elements are caught
+        await watchSelectors(page, ${jsArray(watchList)});`,
+        usesPopup &&
+            `        // listen before the interaction so late windows are counted too
+        const popups = [];
+        page.on('popup', (popup) => popups.push(popup));
+        // a popup event fires only after its first navigation; external hosts may be unreachable here
+        const appOrigin = new URL(page.url()).origin;
+        await page
+            .context()
+            .route('**/*', (route) =>
+                route.request().isNavigationRequest() &&
+                !route.request().url().startsWith(appOrigin)
+                    ? route.fulfill({ contentType: 'text/html', body: '' })
+                    : route.fallback()
+            );`
+    ].filter(Boolean);
 
     const planComment = navigationPlan
         ? `        /* navigationPlan (compile per references/navigation-plan.md):\n${JSON.stringify(navigationPlan, null, 2)
@@ -258,111 +374,95 @@ export const buildSpec = (input, cfg) => {
               .map((l) => `           ${l}`)
               .join('\n')}\n        */\n`
         : '';
-    const steps = buildSteps(verifications, cfg);
-    const body = testBody ?? `${planComment}${BODY_MARKER}\n\n${steps}`;
+
+    const params = usesRuntime ? '{ page, cp, collector }' : '{ page, cp }';
+    const testParam = isC2 ? `${params}, testInfo` : params;
+
+    const bodyOf = (c) => {
+        if (c.testBody) return c.testBody;
+        const head = [
+            ...preBody,
+            c.setupBody && indentCode(c.setupBody),
+            buildVerificationSteps(c.verifications, cfg, true)
+        ].filter(Boolean);
+        // slotBody '' means "no interaction", so no marker is left behind
+        const slot = c.slotBody == null ? `${planComment}${BODY_MARKER}` : indentCode(c.slotBody);
+        return [...head, slot, buildVerificationSteps(c.verifications, cfg)].filter(Boolean).join('\n\n');
+    };
+
+    const beforeEachBody = `        await mockAll(page, ${mockArg}, { isolate: ${isolated} });
+
+        await page.goto(START_URL, { waitUntil: 'domcontentloaded' });
+        ${readyCall}`;
+
+    const useBlock = (c) => `test.use({
+    e2e: {
+        tcName: TC_NAME,
+        screen: ${jsStr(c.screen ?? screen)},
+        testMode: ${isolated ? "'fixture'" : "'real-api'"},
+        successCriteria: SUCCESS_CRITERIA,
+        successCriteriaText: ${jsStr(c.successCriteriaText ?? '')},
+        consoleErrorWhitelist: CONSOLE_ERROR_WHITELIST,
+        networkErrorWhitelist: NETWORK_ERROR_WHITELIST
+    }
+});`;
+
+    const indent = (s) => s.replace(/^(?=.)/gm, '    ');
     const network = [...(e2e.networkNoiseWhitelist || []), ...networkErrorWhitelist];
 
-    return `${header.join('\n')}
+    const sharedHead = `${header.join('\n')}
 
-import { test, expect } from '@playwright/test';
-import { mockAll, RuntimeCollector, analyze, attachAnalysisToReport } from ${jsStr(kitImport)};
-import adapter from ${jsStr(adapterImport)};
+${imports.join('\n')}
 
-const TC_NAME = ${jsStr(tcName)};
-const START_URL = ${jsStr(startUrl)};
-const SCREEN = ${jsStr(screen)};
+${isMulti ? '' : `const TC_NAME = ${jsStr(primaryName)};\n`}const START_URL = ${jsStr(startUrl)};
 
 const CONSOLE_ERROR_WHITELIST = ${jsArray(consoleErrorWhitelist)};
 const NETWORK_ERROR_WHITELIST = ${jsArray(network)};
-const ACCEPTABLE_STATUSES = ${jsArray(acceptableStatuses)};
+`;
 
-${buildSuccessCriteria(verifications)}
+    if (!isMulti) {
+        const c = caseList[0];
+        return `${sharedHead}
+${buildSuccessCriteria(c.verifications, locale)}
 
-let collector = null;
+${useBlock(c)}
 
-test.describe(${jsStr(tcName)}, () => {
+test.describe(TC_NAME, () => {
     test.setTimeout(${Number(timeout)});
 
     test.beforeEach(async ({ page }) => {
-        for (const criterion of SUCCESS_CRITERIA) {
-            criterion.passed = false;
-        }
-
-        collector = new RuntimeCollector(page);
-        await collector.start();
-
-        await mockAll(page, ${mockArg}, { isolate: ${liveData ? 'false' : 'true'} });
-
-        await page.goto(START_URL, { waitUntil: 'domcontentloaded' });
-        await adapter.waitForAppReady(page, ${readyArg});
+${beforeEachBody}
     });
 
-    test(${jsStr(tcName)}, async ({ page }, testInfo) => {
-${body}
-    });
-
-    test.afterEach(async ({ page }, testInfo) => {
-        if (!collector) return;
-
-        let runtimeData = await collector.collect();
-
-        const allConsoleErrors = runtimeData.consoleErrors ?? [];
-        const filteredErrors = allConsoleErrors.filter((e) => {
-            const byText = CONSOLE_ERROR_WHITELIST.some((p) => e.text?.includes(p));
-            const byUrl = NETWORK_ERROR_WHITELIST.some((p) => e.url?.includes(p));
-            return !byText && !byUrl;
-        });
-        runtimeData = { ...runtimeData, consoleErrors: filteredErrors };
-        const whitelistedErrors = {
-            patterns: CONSOLE_ERROR_WHITELIST,
-            filteredCount: allConsoleErrors.length - filteredErrors.length,
-            remainingCount: filteredErrors.length
-        };
-
-        const allNetworkErrors = runtimeData.networkErrors ?? [];
-        const filteredNetworkErrors = NETWORK_ERROR_WHITELIST.length
-            ? allNetworkErrors.filter((e) => !NETWORK_ERROR_WHITELIST.some((p) => e.url?.includes(p)))
-            : allNetworkErrors;
-        runtimeData = { ...runtimeData, networkErrors: filteredNetworkErrors };
-        const whitelistedNetworkErrors = {
-            patterns: NETWORK_ERROR_WHITELIST,
-            filteredCount: allNetworkErrors.length - filteredNetworkErrors.length,
-            remainingCount: filteredNetworkErrors.length
-        };
-
-        const analysisResult = await analyze(runtimeData, {
-            testName: TC_NAME,
-            domain: SCREEN,
-            testMode: ${liveData ? "'live-data'" : "'fixture'"},
-            successCriteria: ${jsStr(successCriteria)},${acceptanceCriteria ? `\n            scenario: ${jsStr(acceptanceCriteria)},` : ''}
-            acceptableStatuses: ACCEPTABLE_STATUSES,
-            whitelistedErrors,
-            whitelistedNetworkErrors,
-            acceptanceCriteria: SUCCESS_CRITERIA
-        });
-
-        attachAnalysisToReport(testInfo, analysisResult, runtimeData, SUCCESS_CRITERIA);
-
-        if (testInfo.status === 'failed' || analysisResult.status === 'FAIL') {
-            const failureShot = await page.screenshot().catch(() => null);
-            if (failureShot) {
-                await testInfo.attach('failure-screenshot', { body: failureShot, contentType: 'image/png' });
-            }
-        }
-
-        const screenshot = await page.screenshot().catch(() => null);
-        if (screenshot) {
-            await testInfo.attach('screenshot', { body: screenshot, contentType: 'image/png' });
-        }
-
-        if (!analysisResult.analysisError && !ACCEPTABLE_STATUSES.includes(analysisResult.status)) {
-            throw new Error(
-                \`[\${TC_NAME}] analysis status: \${analysisResult.status}\\n\` +
-                    \`Issues:\\n\${analysisResult.issues?.map((i) => \`  - \${i}\`).join('\\n') || 'none'}\`
-            );
-        }
+    test(TC_NAME, async (${testParam}) => {
+${bodyOf(c)}
     });
 });
+`;
+    }
+
+    const caseBlocks = caseList.map(
+        (c) => `test.describe(${jsStr(c.tcName)}, () => {
+    test.setTimeout(${Number(timeout)});
+
+    const TC_NAME = ${jsStr(c.tcName)};
+
+${indent(buildSuccessCriteria(c.verifications, locale))}
+
+${indent(useBlock(c))}
+
+    test(TC_NAME, async (${testParam}) => {
+${bodyOf(c)}
+    });
+});`
+    );
+
+    return `${sharedHead}
+test.beforeEach(async ({ page }) => {
+${beforeEachBody.replace(/^ {4}/gm, '')}
+});
+
+${caseBlocks.join('\n\n')}
 `;
 };
 

@@ -18,6 +18,7 @@ export const CONFIG_REL = '.agents/pipeline.config.json';
 export const DEFAULTS = {
     $schema: 'dev-pipeline/1',
     worksDir: '.agents/works',
+    locale: 'en',
     issueKeyPattern: '[A-Z]+-\\d+',
     branchPrefix: 'feat/',
     packageManager: 'npm',
@@ -63,7 +64,6 @@ export const DEFAULTS = {
         healthUrlPath: '/',
         interaction: 'pointer',
         readyExpr: null,
-        renderSelectorDefault: null,
         envErrorPatterns: [
             'ECONNREFUSED',
             'EADDRINUSE',
@@ -77,7 +77,15 @@ export const DEFAULTS = {
         consoleAllowedMethods: null,
         softTrack: null,
         screenCatalog: null,
-        ai: { provider: 'none', model: null, apiKeyEnv: null }
+        archiveDir: null,
+        bootFixtures: [],
+        report: { locale: null, loopThreshold: 3 },
+        judge: { backendErrorPatterns: [] }
+    },
+    source: {
+        roots: ['src'],
+        extensions: ['.js', '.ts', '.vue', '.jsx', '.tsx', '.svelte', '.mjs', '.cjs'],
+        aliases: null
     },
     style: {
         layersDir: '.agents/layers',        // catalog.json + one doc per development layer
@@ -93,7 +101,7 @@ export const DEFAULTS = {
 };
 
 // Keys (dot paths) whose values are repo-relative paths → resolved to absolute.
-const PATH_KEYS = [
+export const PATH_KEYS = [
     'worksDir',
     'constraintsFile',
     'unitTest.knownFailuresFile',
@@ -105,6 +113,7 @@ const PATH_KEYS = [
     'e2e.kitDir',
     'e2e.adapterModule',
     'e2e.resultsJson',
+    'e2e.archiveDir',
     'e2e.screenCatalog',
     'style.layersDir',
     'style.stylesDir'
@@ -157,13 +166,15 @@ const ENUMS = {
     'unitTest.runner': ['vitest', 'jest'],
     'ui.framework': ['auto', 'vue', 'react', 'svelte', 'angular', 'other'],
     'e2e.interaction': ['pointer', 'keyboard'],
-    'e2e.ai.provider': ['openai', 'anthropic', 'none']
+    locale: ['en', 'ko'],
+    'e2e.report.locale': [null, 'en', 'ko']
 };
 
 function validate(cfg, root, errors, warnings) {
     if (cfg.$schema !== 'dev-pipeline/1') warnings.push(`$schema is "${cfg.$schema}", expected "dev-pipeline/1"`);
-    if (!cfg.commands?.unitTest) errors.push('commands.unitTest is required');
-    if (!cfg.commands?.e2eRun) errors.push('commands.e2eRun is required');
+    // init writes null when no runner or no Playwright was found; the skills that need them stop on their own
+    if (!cfg.commands?.unitTest) warnings.push('commands.unitTest is null — tdd-implement cannot run unit tests until it is set');
+    if (!cfg.commands?.e2eRun) warnings.push('commands.e2eRun is null — install Playwright and set it before e2e-test');
     for (const [k, allowed] of Object.entries(ENUMS)) {
         const v = get(cfg, k);
         if (!allowed.includes(v)) errors.push(`${k} must be one of ${allowed.join('|')}, got ${JSON.stringify(v)}`);
@@ -217,6 +228,23 @@ function validate(cfg, root, errors, warnings) {
             }
     if (cfg.e2e?.consoleAllowedMethods !== null && !Array.isArray(cfg.e2e.consoleAllowedMethods))
         errors.push('e2e.consoleAllowedMethods must be null or string[]');
+    if (cfg.e2e?.ai !== undefined) warnings.push('e2e.ai is no longer used — verdicts are rule-based; remove the key');
+    if (!Number.isInteger(cfg.e2e?.report?.loopThreshold) || cfg.e2e.report.loopThreshold < 1)
+        errors.push('e2e.report.loopThreshold must be a positive integer');
+    const bep = cfg.e2e?.judge?.backendErrorPatterns;
+    if (!isStrings(bep)) errors.push('e2e.judge.backendErrorPatterns must be string[]');
+    else
+        for (const p of bep)
+            try {
+                new RegExp(p);
+            } catch {
+                errors.push(`e2e.judge.backendErrorPatterns has an invalid regex: ${p}`);
+            }
+    if (!isStrings(cfg.e2e?.bootFixtures)) errors.push('e2e.bootFixtures must be string[]');
+    if (!isStrings(cfg.source?.roots)) errors.push('source.roots must be string[]');
+    if (!isStrings(cfg.source?.extensions)) errors.push('source.extensions must be string[]');
+    const al = cfg.source?.aliases;
+    if (al !== null && !isObj(al)) errors.push('source.aliases must be null or { alias: path }');
 }
 
 export function loadConfig(cwd = process.cwd()) {
