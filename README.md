@@ -72,6 +72,25 @@ Optional switches (all default off): `ui.stateBridge` enables State checkpoints 
 
 Generated specs call your app only through `e2e.adapter.js` (`waitForAppReady`, `press`, `locator`, `findAndEnter`, `snapshotState`). Pointer apps need no changes — the kit default clicks. Keyboard-driven apps implement `findAndEnter`; see `examples/adapters/`. Contract: `references/adapter-contract.md`.
 
+## Using it as a team
+
+Setup happens once per repository. Whoever goes first runs `/dev-pipeline:init` (which also installs the E2E kit) and commits the result; teammates skip both and start working.
+
+| Shared through git | Per person |
+|---|---|
+| `.agents/pipeline.config.json`, the kit, the adapter, `playwright.config.*`, `.gitignore` rules | the plugin itself, project dependencies, Playwright browsers |
+| PRD, TC, plan, `red-evidence.jsonl`, `e2e-report.md`, specs, fixtures | your style file (`/dev-pipeline:style-extract`) |
+| the layer catalog | run state: `state.json`, `.superpowers/`, `e2e-loops.json`, the report archive (all gitignored) |
+
+A teammate's first day: install the plugin, install dependencies and browsers, then run `/dev-pipeline:init`. With a config in place it changes nothing; it shows the settings and asks what to do next.
+
+Where teams get tangled:
+
+- **Plugin versions.** e2e-test stops unless the project's kit is exactly this plugin's kit version. Upgrade together: one person updates the plugin, runs `/dev-pipeline:e2e-init --upgrade` and merges that alone; everyone else then updates the plugin only. Two people upgrading separately produce conflicting kit commits, and an older plugin cannot use a newer kit.
+- **Handing over a run.** Run state is not in git, so a teammate resumes from the committed artifacts (prd → tc → plan → ledger). The pipeline never commits them on its own: commit and push them before handing over. Hand over at a gate (after G1, G2 or G3a); the middle of IMPL depends on the local `.superpowers/` progress file.
+- **Slugs.** The collision check before saving sees only your local folders and branch names, not a teammate's unpushed work. Put the issue key in the slug (`PROJ-123-list-filter`) so two people never pick the same one.
+- **Languages are team-wide.** `language` and `locale` live in the shared config, so changing them changes them for everyone. `locale` must match the headings of the documents you already have, or their checks fail.
+
 ## Upgrading
 
 See [CHANGELOG.md](CHANGELOG.md). 0.4.0 changes the pipeline structure, artifact headings and the E2E kit; run `/dev-pipeline:e2e-init --upgrade` and follow the migration list there.
