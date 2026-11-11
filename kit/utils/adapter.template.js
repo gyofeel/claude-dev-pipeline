@@ -25,7 +25,8 @@ export default {
     // Logical key name → Playwright key (remote controls, custom shortcuts).
     // keyMap: { ...defaultAdapter.keyMap, Back: 'Backspace', Home: 'y' },
 
-    // JS expression evaluated in the page that returns the focused area/id (used by Focus checkpoints).
+    // JS expression evaluated in the page that returns the focused area/id (used by navigation `focusChanges` waits;
+    // Focus checkpoints read config ui.stateBridge.focusExpr instead).
     // focusExpr: "window.__APP__?.focus?.id ?? ''",
 
     // Extra fields attached to failure diagnostics.

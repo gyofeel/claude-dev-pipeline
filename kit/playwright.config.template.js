@@ -7,12 +7,18 @@ export default defineConfig({
     use: {
         baseURL: '__BASE_URL__',
         headless: !process.env.E2E_HEADED,
-        viewport: { width: 1280, height: 800 }
+        viewport: { width: 1280, height: 800 },
+        // a service worker can answer requests before page.route sees them, bypassing mocks
+        serviceWorkers: 'block',
+        // e2e-report.html shows one frame per checkpoint from the trace
+        trace: 'on'
     },
     reporter: [
         ['list'],
         ['html', { outputFolder: '__REPORTS_DIR__/html', open: 'never' }],
-        ['json', { outputFile: '__RESULTS_JSON__' }]
+        ['json', { outputFile: '__RESULTS_JSON__' }],
+        // must stay last: it copies what the html/json reporters wrote
+        ['./__KIT_DIR__/utils/archive-reporter.mjs']
     ],
     // __WEBSERVER_START__
     webServer: {

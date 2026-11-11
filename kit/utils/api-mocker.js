@@ -21,6 +21,32 @@ const BINARY_ASSET_EXT_RE =
 // failure class: the app stays blank and the only symptom is a waitForAppReady timeout.
 const PASS_THROUGH_RE = /(\/@vite\/|\/@id\/|\/@fs\/|\/node_modules\/|\/builds\/meta\/|\.m?js(\?|$)|\.css(\?|$)|\.map(\?|$)|\.txt(\?|$))/;
 
+// Which route answered each request; RuntimeCollector reads it to count the mock boundary.
+const routedCategory = new WeakMap();
+
+/** Record the source ('fixture' | 'empty' | 'shell') of a request a route answered. */
+export const markRouted = (request, category) => routedCategory.set(request, category);
+
+/** The source recorded by markRouted, or undefined when no route handled the request. */
+export const mockCategoryOf = (request) => routedCategory.get(request);
+
+// Per-page fulfill counts of registered patterns; an unused mock is a false-pass signal.
+const hitCounts = new WeakMap();
+
+const hitsOf = (page) => {
+    if (!hitCounts.has(page)) hitCounts.set(page, new Map());
+    return hitCounts.get(page);
+};
+
+const register = (page, pattern) => {
+    const hits = hitsOf(page);
+    if (!hits.has(pattern)) hits.set(pattern, 0);
+    return () => hits.set(pattern, hits.get(pattern) + 1);
+};
+
+/** How many requests each mock/mockByRequest/mockAll pattern fulfilled on this page. */
+export const mockHits = (page) => Object.fromEntries(hitCounts.get(page) ?? []);
+
 function fixturesDir(override) {
     if (override) return path.resolve(override);
     const { root, config } = loadKitConfig();
@@ -50,8 +76,13 @@ function fulfillJson(route, data, status) {
 export async function mock(page, urlPattern, fixtureSource, options = {}) {
     const { status = 200 } = options;
     const data = loadFixture(fixtureSource, fixturesDir(options.fixturesDir));
+    const hit = register(page, urlPattern);
     await page.unroute(urlPattern).catch(() => {});
-    await page.route(urlPattern, (route) => fulfillJson(route, data, status));
+    await page.route(urlPattern, (route) => {
+        hit();
+        markRouted(route.request(), 'fixture');
+        return fulfillJson(route, data, status);
+    });
 }
 
 /**
@@ -62,6 +93,7 @@ export async function mock(page, urlPattern, fixtureSource, options = {}) {
 export async function mockByRequest(page, urlPattern, resolver, options = {}) {
     const { status = 200 } = options;
     const dir = fixturesDir(options.fixturesDir);
+    const hit = register(page, urlPattern);
     await page.unroute(urlPattern).catch(() => {});
     await page.route(urlPattern, (route) => {
         let body = {};
@@ -72,6 +104,8 @@ export async function mockByRequest(page, urlPattern, resolver, options = {}) {
         }
         const source = resolver(body, route.request());
         if (source == null) return route.fallback();
+        hit();
+        markRouted(route.request(), 'fixture');
         return fulfillJson(route, loadFixture(source, dir), status);
     });
 }
@@ -92,7 +126,11 @@ async function installIsolationCatchAll(page) {
         const type = route.request().resourceType();
         if (type !== 'xhr' && type !== 'fetch') return route.continue();
         const url = route.request().url();
-        if (PASS_THROUGH_RE.test(url) || BINARY_ASSET_EXT_RE.test(url)) return route.continue();
+        if (PASS_THROUGH_RE.test(url) || BINARY_ASSET_EXT_RE.test(url)) {
+            markRouted(route.request(), 'shell');
+            return route.continue();
+        }
+        markRouted(route.request(), 'empty');
         return fulfillJson(route, {}, 200);
     });
 }
