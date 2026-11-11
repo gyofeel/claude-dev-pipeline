@@ -20,6 +20,7 @@ Keys marked **required** must be present. Everything else has the default shown.
   "$schema": "dev-pipeline/1",
 
   // ── Artifacts ─────────────────────────────────────────────
+  "locale": "en",                       // "en" | "ko" — language of generated artifacts (PRD, TC, plan headers, report)
   "worksDir": ".agents/works",          // <worksDir>/<slug>/{prd.md,tc.md,<slug>-plan.md,state.json}
   "issueKeyPattern": "[A-Z]+-\\d+",     // ticket id recognised in args and branch names
   "branchPrefix": "feat/",              // tdd-implement creates <branchPrefix><slug>
@@ -30,20 +31,21 @@ Keys marked **required** must be present. Everything else has the default shown.
   // ── Commands (strings run via Bash; null = step skipped) ──
   "commands": {
     "setup": null,                      // run before the unit-test baseline (e.g. "pnpm postinstall")
-    "unitTest": "npx vitest run",       // required — full unit suite, non-watch, exit code meaningful
+    "unitTest": "npx vitest run",       // full unit suite, non-watch, exit code meaningful; null (no runner) → config-load warns, tdd-implement unusable
     "unitTestList": null,               // optional — lists collected test files (baseline count)
     "format": null,                     // e.g. "npx prettier --write"; applied to files before commit
     "lint": null,                       // e.g. "npx eslint --fix"; best-effort
     "dev": null,                        // dev server command; used by playwright.config webServer template.
                                         // Pin it to a non-production backend (env vars in the command). Playwright's
                                         // reuseExistingServer will happily reuse a server someone started against production.
-    "e2eRun": "npx playwright test"     // required by e2e-test — runs one spec path appended
+    "e2eRun": "npx playwright test"     // needed by e2e-test — runs one spec path appended; null (no Playwright) → config-load warns, e2e-test stops
   },
 
   // ── Unit tests ────────────────────────────────────────────
   "unitTest": {
     "runner": "vitest",                 // "vitest" | "jest" — selects the red-gate result adapter
-    "runnerArgs": [],                   // extra args red-gate passes (e.g. ["--project","unit"])
+    "runnerArgs": [],                   // extra args red-gate passes (e.g. ["--silent"]). No --project here:
+                                        // red-gate takes --project per test, and --all must reach every project
     "testFileGlobs": ["**/*.test.{js,ts,jsx,tsx}"],   // where the runner collects tests
     "excludedFilePatterns": [],         // filenames the runner ignores (so tc-extract never proposes them)
     "testNaming": "<name>.test.js",     // colocated file name rule shown to tc-extract
@@ -63,9 +65,11 @@ Keys marked **required** must be present. Everything else has the default shown.
     "routeRule": null,                  // { "strip": "app/pages", "prefix": "", "indexFile": "index" }
                                         // file path → URL: remove strip, add prefix, drop indexFile, strip extension.
                                         // Dynamic segments like [id] are kept literally and flagged.
-    "stateBridge": null,                // { "globalExpr": "window.__APP_STATE__", "focusExpr": null }
+    "stateBridge": null,                // { "globalExpr": "window.__APP_STATE__", "focusExpr": null, "forbiddenGlobals": [] }
                                         // JS expression evaluable in the page that exposes app state.
                                         // null → the State verification type is disabled everywhere.
+                                        // forbiddenGlobals: expressions specs must not use (e.g. an old store global);
+                                        // spec-lint rule 14 flags each one as Critical
     "registrationFiles": [],            // barrels / registries a new module must be added to (e.g. ["src/store/index.js"]); tc-extract checks them in new-implementation mode
     "selectorPriority": ["testid", "id", "class", "text"],   // order agents prefer when proposing DOM hooks
     "testIdAttribute": "data-testid"
@@ -83,7 +87,6 @@ Keys marked **required** must be present. Everything else has the default shown.
     "healthUrlPath": "/",               // GET this to decide the app is up
     "interaction": "pointer",           // "pointer" | "keyboard" — keyboard requires adapter.findAndEnter
     "readyExpr": null,                  // JS boolean expr the app must satisfy before the first interaction
-    "renderSelectorDefault": null,      // CSS the spec waits for after load when the TC gives none
     "envErrorPatterns": [               // stderr/stdout substrings that mean "environment, not spec"
       "ECONNREFUSED", "EADDRINUSE", "EACCES", "Executable doesn't exist",
       "Process from config.webServer", "Timed out waiting"
@@ -93,16 +96,30 @@ Keys marked **required** must be present. Everything else has the default shown.
     "consoleAllowedMethods": null,      // e.g. ["log","info","error"] → spec-lint flags other console.* calls
     "softTrack": null,                  // { "guardExpr": "<js bool: true when the real env is present>",
                                         //   "patterns": ["playStatus", "nativeCallback"] }
-                                        // assertions touching these patterns become soft-tracked when guardExpr is false
+                                        // checkpoints touching these patterns become soft cp (recorded, never fail the test)
+                                        // in every environment; guardExpr is validated but no generated spec evaluates it
     "screenCatalog": null,              // path to screens.json: [{ "name", "url", "file", "renderSelector" }]
-    "ai": {
-      "provider": "none",               // "openai" | "anthropic" | "none"
-      "model": null,                    // default per provider (openai: gpt-5-mini, anthropic: claude-sonnet-5)
-      "apiKeyEnv": null                 // default OPENAI_API_KEY / ANTHROPIC_API_KEY
+    "archiveDir": null,                 // e2e-report.html archive; null → <dirname(resultsJson)>/archive
+    "bootFixtures": [],                 // URL globs the app needs to boot (e.g. ["**/api/session*"]), written exactly as
+                                        // spec fixtures map keys; a spec mocking one of them runs isolated
+    "report": {
+      "locale": null,                   // "en" | "ko"; null → top-level locale
+      "loopThreshold": 3                // a test needing this many regeneration loops is flagged in the report
+    },
+    "judge": {
+      "backendErrorPatterns": []        // regex strings on a console error's first line that mark a backend-response error:
+                                        // excluded from the verdict under fixtures, a failure against the real API
     }
   },
 
-  // ── Developer style (style-extract, tdd-implement I-4b) ──
+  // ── Source scanning (field-consumers, flag-effects, red-gate) ──
+  "source": {
+    "roots": ["src"],                   // repo-relative directories scanned for source files
+    "extensions": [".js", ".ts", ".vue", ".jsx", ".tsx", ".svelte", ".mjs", ".cjs"],
+    "aliases": null                     // { "@": "src" } import aliases; null → read tsconfig/jsconfig "paths"
+  },
+
+  // ── Developer style (style-extract, tdd-implement PLAN step 4 — style context) ──
   "style": {
     "layersDir": ".agents/layers",      // catalog.json + one doc per development layer (style-extract drafts it)
     "stylesDir": ".agents/styles",      // one style file per developer, committed to the project repo
@@ -114,6 +131,12 @@ Keys marked **required** must be present. Everything else has the default shown.
   },
 
   // ── Gates ─────────────────────────────────────────────────
+  "surfaceGate": {                      // optional; tunes scripts/surface-gate.mjs
+    "autoEntryPaths": [],               // repo-relative prefixes the framework registers by location (e.g. "app/pages/");
+                                        // new files there count as reachable; nuxt / next defaults are added from ui.framework
+    "specPaths": null,                  // where specs and their helpers live; null → e2e.specsDir, e2e.fixturesDir, e2e.kitDir
+    "nonProductionPaths": []            // extra prefixes excluded from production code (tooling, docs, scripts)
+  },
   "approvalGates": [],                  // [{ "name": "new scoped style", "check": "git diff $BASE..HEAD -- '*.vue' | grep -n '<style' || true" }]
                                         // $BASE (merge-base with the default branch) is exported when checks run
                                         // listed in the implementation-review gate; a non-empty check output needs explicit user approval
@@ -132,6 +155,7 @@ Keys marked **required** must be present. Everything else has the default shown.
 - `commands.*` strings are executed with `bash -c` from the repo root. A skill appends arguments (a spec path, a test file) after a space.
 - `ui.framework: "auto"` is resolved from `package.json` dependencies (vue/nuxt → vue, react/next → react, svelte → svelte, @angular → angular, else other). The resolved value is a one-line hint for agents, nothing more.
 - `ui.stateBridge.globalExpr` is the only way the pipeline reads app state. Agents write state paths as `<store>.<field>`; the spec compiles them to `<globalExpr>?.<store>?.<field>`. The runtime probe (`scripts/state-probe.mjs`) evaluates each path once against the running app and rejects paths that resolve to `undefined`.
+- `e2e.ai` was removed (verdicts are rule-based); `--check` warns when the key is still present.
 - `style` is optional. Without a style file the style scripts change nothing, and they run with these defaults even when `pipeline.config.json` is missing.
 - `e2e.interaction: "keyboard"` requires `adapter.findAndEnter`. `--check` only warns while the adapter file does not exist yet (init runs before e2e-init), and errors once the file exists without an uncommented `findAndEnter` — so `e2e-test` stops until the project implements it.
 

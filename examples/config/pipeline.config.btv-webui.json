@@ -2,6 +2,7 @@
   "$schema": "dev-pipeline/1",
   "_comment": "Origin project of this plugin: a remote-control-driven TV web app (Nuxt + Pinia). Shows every optional feature switched on: state bridge, keyboard interaction with an adapter, soft-track patterns, approval gates, platform interface.",
 
+  "locale": "ko",
   "worksDir": ".agents/works",
   "issueKeyPattern": "[A-Z]+-\\d+",
   "branchPrefix": "feat/",
@@ -20,7 +21,7 @@
 
   "unitTest": {
     "runner": "vitest",
-    "runnerArgs": ["--project", "unit", "--coverage.enabled=false"],
+    "runnerArgs": ["--coverage.enabled=false"],
     "testFileGlobs": ["app/**/*.test.js", "server/**/*.test.js", "shared/**/*.test.js"],
     "excludedFilePatterns": ["*shared.test.js"],
     "testNaming": "<name>.test.js (components: <name>.ui.test.js / <name>.click.test.js)",
@@ -66,7 +67,6 @@
     "healthUrlPath": "/favicon.ico",
     "interaction": "keyboard",
     "readyExpr": "document.getElementById('page')?.style.opacity === '1'",
-    "renderSelectorDefault": null,
     "envErrorPatterns": [
       "ECONNREFUSED", "EADDRINUSE", "EACCES", "Executable doesn't exist",
       "Process from config.webServer", "Timed out waiting", "Another Nuxt dev", "dev.lock"
@@ -79,7 +79,14 @@
       "patterns": ["playStatus", "getPlaySecuInfo", "getSTBCamera", "webHideNoti", "ANIMATION_APP_HIDE", "/idle"]
     },
     "screenCatalog": null,
-    "ai": { "provider": "openai", "model": "gpt-5-mini", "apiKeyEnv": "OPENAI_API_KEY" }
+    "bootFixtures": ["**/api/gnb/list*", "**/api/gnb/list"],
+    "report": { "locale": "ko", "loopThreshold": 3 },
+    "judge": { "backendErrorPatterns": ["^(ServerResultError|ServerError)\\b"] }
+  },
+
+  "source": {
+    "roots": ["app", "server", "shared", "modules"],
+    "aliases": { "~/": "app/", "@/": "" }
   },
 
   "style": {

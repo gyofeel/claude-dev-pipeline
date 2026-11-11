@@ -1,49 +1,48 @@
 ---
 name: tdd-implement
-description: Use when a tc.md produced by tc-extract (new-implementation mode) has TCs with a Unit target and the user wants them implemented test-first with recorded RED evidence — triggers like "/dev-pipeline:tdd-implement", "implement with TDD", "tests first", or right after tc-extract reports unit targets.
+description: Use when a tc.md produced by tc-extract (new-implementation mode) is ready to be built test-first with recorded RED evidence, or when its plan (`<slug>-plan.md`) is ready to execute — triggers like "/dev-pipeline:tdd-implement", "implement with TDD", "tests first", or right after tc-extract reports unit targets and implementation owners.
 ---
 
-# TDD implement (TC-driven)
+# TDD implement
 
-Turns the unit-targeted TCs of a `tc.md` into code, test-first. The superpowers plugin owns TDD discipline, plan format, subagent execution, and review loops. This skill is only the **glue for this repository**: parse the TC contract, inject project laws, wire the deterministic gate, route failures by cause.
+The superpowers plugin owns TDD discipline, the plan format, subagent execution and the review loop. This skill only adds what attaches them to the project:
+- TC → plan conversion
+- wiring the deterministic gates: `${CLAUDE_PLUGIN_ROOT}/scripts/red-gate.mjs` · `coverage-gate.mjs` · `surface-gate.mjs`
+- failure routing
+
+Gates G3a and G3 follow "Gates and the next session" in `../auto-e2e-pipeline/references/shared-contract.md`. When `<worksDir>/<slug>/state.json` exists, this skill updates its `tdd-plan` and `tdd-impl` stages (`running` on entry, `done` + `confirmedAt` when its gate passes) and adds the contract's progress question to its G3a / G3 `AskUserQuestion` (at most 4 questions per call). The router does not ask it again; it updates `next` and acts on the answer.
 
 ## Usage
 
 ```
-/dev-pipeline:tdd-implement <worksDir>/<slug>/tc.md [--style <name>]
+/dev-pipeline:tdd-implement <worksDir>/<slug>/tc.md [--style <name>]      # PLAN
+/dev-pipeline:tdd-implement <worksDir>/<slug>/<slug>-plan.md              # IMPL
 ```
 
-`$ARGUMENTS` is the TC path, optionally followed by `--style <name>` (passed to I-4b). Missing → list `<worksDir>/*/tc.md` with `AskUserQuestion`. **The slug is the parent directory name.**
+Two nodes; the input file picks the node. Start a fresh context between them, so what piled up while writing the plan does not ride along through execution.
 
-## Step 0 — Config
+| Input | Node | Ends at |
+|---|---|---|
+| `<worksDir>/<slug>/tc.md` | **PLAN** — write the plan | G3a plan review |
+| `<worksDir>/<slug>/<slug>-plan.md` | **IMPL** — SDD execution + final gate | G3 implementation review |
+
+No argument → list `<worksDir>/*/tc.md` and `<worksDir>/*/*-plan.md` and let the user pick. The slug is the input file's parent directory name. `--style` is passed to PLAN step 4.
+
+**Execution premise**: verification runs on the developer machine, not the production platform. Anything in config `unitTest.excludedAreas` is not a unit target; it belongs to `dev-pipeline:e2e-test`. **Verification layer ≠ implementation owner.** A TC without a unit test still needs someone to build it; its owner was decided at G2 in tc.md `## Implementation owners`.
+
+**Two departures from superpowers defaults**
+- No `brainstorming`. Requirements and design were settled in the PRD and TC stages.
+- No `using-git-worktrees` unless config `unitTest.useWorktree` is `true`. A fresh worktree has no installed dependencies or build artifacts, so neither tests nor commit hooks run there. Isolate with a branch.
+
+## Step 0 — Config and prerequisites
 
 ```bash
 node "${CLAUDE_PLUGIN_ROOT}/scripts/config-load.mjs" --check
 ```
 
-Missing or invalid → stop: "Run `/dev-pipeline:init` first." Everything below uses resolved config values (`worksDir`, `branchPrefix`, `commands.*`, `unitTest.*`, `constraintsFile`, `approvalGates`).
+Missing or invalid → stop: "Run `/dev-pipeline:init` first." Below uses `worksDir`, `branchPrefix`, `locale`, `commands.*`, `unitTest.*`, `constraintsFile`, `approvalGates`, `issueKeyPattern`. Plan markers (`### Task N`, characterization, RED exempt) follow `${CLAUDE_PLUGIN_ROOT}/kit/artifact-labels.mjs` for `locale`.
 
-## Execution premise (all steps, all subagents)
-
-Verification runs on the developer machine, not the production platform. **Anything listed in config `unitTest.excludedAreas` is not a unit target** — it belongs to `/dev-pipeline:e2e-test`. Blurring this line produces mocks for interfaces that never answer and tests that assert nothing.
-
-> **Verification layer ≠ implementation owner.** `Unit target: (none)` means "verified by E2E", not "implemented by E2E". `/dev-pipeline:e2e-test` generates specs; it never implements the feature. So the implementation owner of every E2E/manual TC is **decided at I-3b** — leave it undecided and that TC is implemented by no stage of the pipeline while every gate stays green (observed downstream: 9 of 22 TCs, the user-visible behaviour of the feature).
-
-## Delegation boundary
-
-| This skill owns | Delegated to superpowers |
-|---|---|
-| TC parsing + verification-layer re-confirmation (human gate) | plan writing → `superpowers:writing-plans` |
-| **Wiring the gate into plan checkboxes** | execution, per-task review, fix rounds ≤5, final review → `superpowers:subagent-driven-development` |
-| Failure routing table ([failure-routing.md](references/failure-routing.md)) | per-task TDD discipline → `superpowers:test-driven-development` |
-| `${CLAUDE_PLUGIN_ROOT}/scripts/red-gate.mjs` · `surface-gate.mjs` · `coverage-gate.mjs` | completion claims → `superpowers:verification-before-completion` |
-| E2E handoff + selector refresh | branch wrap-up → `superpowers:finishing-a-development-branch` |
-
-**No second retry loop.** SDD already has fix rounds + model escalation + final review. This skill only supplies the routing table that says which SDD lever to pull.
-
-## I-0 — Prerequisite gate [automatic, stop on failure]
-
-**superpowers must be installed — check first.**
+superpowers must be enabled:
 
 ```bash
 python3 - <<'PY' && echo "superpowers OK" || echo "superpowers MISSING"
@@ -59,301 +58,154 @@ sys.exit(0 if any(on(p) for p in paths) else 1)
 PY
 ```
 
-Plugins can be enabled per project, so user, project, and project-local settings are all read; any one enabling superpowers passes. Reading only the user file stops healthy projects here.
+Plugins can be enabled per project, so user, project and project-local settings are all read. `MISSING` → stop: "superpowers is not installed. Run `/plugin install superpowers@claude-plugins-official`, restart the session, and re-run this command. PRD and TC files are untouched." There is no fallback: without superpowers there is no record that tests were written first.
 
-`MISSING` → stop. No fallback path: without superpowers there is no record that tests were written first, which is the whole point.
+---
 
-> superpowers is not installed. Run `/plugin install superpowers@claude-plugins-official`, restart the session, and re-run this command. PRD and TC files are untouched.
+## PLAN
 
-`OK` → environment check:
+1. **Environment + baseline**
+   ```bash
+   <commands.setup>     # only if set
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/red-gate.mjs" --phase green --plan <worksDir>/<slug>/<slug>-plan.md --all
+   ```
+   - The plan need not exist yet; `--plan` only fixes the ledger location (`<worksDir>/<slug>/red-evidence.jsonl`).
+   - A red baseline (failures outside `unitTest.knownFailuresFile`) makes every later collateral verdict untrustworthy. Report it and stop.
+   - `RUN_INCOMPLETE` → the suite did not finish; re-run it before judging the baseline.
+   - `ENV` / `EACCES` → never run `sudo`. Show the failing path and the ownership fix to the user, and stop.
 
-```bash
-<commands.setup>          # only if set
-<commands.unitTest>       # must exit 0 — green baseline
-<commands.unitTestList>   # only if set — record collected count
-```
+2. **Branch**: `git switch -c <branchPrefix><slug>`; if it exists, switch to it. (`unitTest.useWorktree: true` → `superpowers:using-git-worktrees` instead.)
 
-**Without a green baseline no gate is trustworthy**: red-gate's collateral check treats "unrelated failures" as defects. If the baseline is red and `unitTest.knownFailuresFile` is set, that baseline is used; otherwise report the failures and stop.
+3. **Plan** → `Skill: superpowers:writing-plans`, passing:
+   - **Save location**: `<worksDir>/<slug>/<slug>-plan.md`. The slug stays in the file name because SDD names its workspace after the plan's basename.
+   - **Header**:
+     - `**Spec:** <worksDir>/<slug>/prd.md, <worksDir>/<slug>/tc.md` — the plan holds no implementation code, so these are SDD's only basis for review.
+     - "Implementation steps need judgement. Implementers use the standard model or better."
+     - "Execution is fixed: subagent-driven-development."
+   - **Scope**: every TC in tc.md, except those whose `## Implementation owners` row is `split` or `existing`. If the user narrowed the scope at G2, use that list.
+   - **`## Implementation owners`** before the first task: one row per TC without a unit test — `Task N`, `existing`, or `split <issue key>`. `coverage-gate` reads it.
+   - **Task template**: [references/task-checkbox-contract.md](references/task-checkbox-contract.md), handed over as is. Give the template itself, not a description of it.
+   - **Global Constraints**: the block below.
+   - **Extra tests from Review Focus** carry no `UCP-` name; they stay out of the traceability count.
+   - **Full replacement**: a task that replaces the whole pattern of an existing file writes `**Full replacement:** <scope — reason>` in its body. Use it only where the code has no settled style to blend into. Implementers never switch to a full rewrite without this marker.
 
-Permission errors (`EACCES` etc.) → **never run `sudo`**. Show the user the failing path and stop.
+4. **Style context** [automatic]
 
-## I-1 — Parse the TC file [automatic]
+   ```bash
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/style/plan-context.mjs" --plan <worksDir>/<slug>/<slug>-plan.md [--style <name>]
+   ```
 
-Read per [tc-format.md](../tc-extract/references/tc-format.md). Extract:
+   - Picks the runner's style file (`--style` → the plan's `**Style:**` line → the file listing `git config user.email` → `style.defaultStyle`), writes it to the plan header, and puts a `Read context` step before each task's first checkbox: the task's development layers (from `Files:`) and the matching style sections. Implementer and task reviewer both read it from the task brief.
+   - `{"style":null,"skipped":true}` → no style file for this runner; go on. Mention `/dev-pipeline:style-extract` once in the G3 report.
+   - Exit 2 → show stderr. It names the missing piece: an unknown `--style`, a `style.defaultStyle` that does not exist, or a `**Style:**` line pointing at a deleted file. Fix the name or remove that line, then re-run.
+   - `fullReplace` non-empty → one `AskUserQuestion` listing each task's scope and reason; a declined task loses its marker and goes back to `writing-plans` as an in-place change.
+   - `unmapped` (paths in no layer) and `noLayerSection` go to the G3 report. They never block.
+   - Never copy style content into `## Global Constraints`: the task reviewer treats that section as binding requirements and would flag tendencies as violations.
+   - Re-run it whenever tasks are added to the plan (upstream rewind); it is idempotent.
 
-- slug (parent dir name); `## Acceptance Criteria` list
-- per TC: `### TC-NN:` name · **Unit target** · **Related AC** · **E2E suitability** · `#### Unit checkpoints` table
+5. **Plan check**
+   ```bash
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/coverage-gate.mjs" --prd <worksDir>/<slug>/prd.md --tc <worksDir>/<slug>/tc.md \
+     --plan <worksDir>/<slug>/<slug>-plan.md --lint
+   ```
+   - Read `ok` first (`ok: false` → `error` says why; never a pass). Then fix the plan and re-run until `lint.errors` and `uncovered` are both empty.
+   - It catches: unit TCs without a task, TCs without an owner, a `##` section after the first task, red-gate commands missing arguments or with a relative `--file`, `Modify:` targets that do not exist and `Create:` targets that already do.
 
-| Unit target | Class |
-|---|---|
-| test file path | **implement** |
-| `(none)` | **implementation owner decision needed** — E2E/manual verifies it; who implements it is decided at I-3b |
+6. **G3a — plan review** (one `AskUserQuestion`)
+   - The only point where a human reads the RED contract (the test code).
+   - Description: task count; wiring, characterization and RED-exempt tasks; the `## Implementation owners` summary; the style file applied; full-replacement tasks (scope · reason); paths with no layer.
+   - With a state file, the progress question is one of this call's questions.
+   - Approved → with a state file, mark `tdd-plan` done and return to the router with the progress answer. Standalone, IMPL starts in a new session: `/dev-pipeline:tdd-implement <worksDir>/<slug>/<slug>-plan.md`.
 
-Also read the TC file's `## Implementation surface` (new-implementation mode) and the `(new)` selectors / state paths in checkpoints. They list **DOM and state that do not exist yet** and are shown at I-3b as the basis for the owner decision.
+### Global Constraints (into the plan)
 
-Zero implement TCs does **not** end the skill. Decide the owners of the E2E/manual TCs at I-3b first; only if every one is `existing` or `split`, report "Nothing for this skill to implement. Continue with `/dev-pipeline:e2e-test`." and stop.
-
-> The PRD referenced as `Spec:` may be any spec document, not only prd-extract output. Without the standard header, confirm the AC list with the user.
-
-## I-2 — Branch isolation
-
-`unitTest.useWorktree: false` (default):
-
-```bash
-git switch -c <branchPrefix><slug>
-```
-
-`true` → `superpowers:using-git-worktrees`. The default is a branch because a fresh worktree has no installed dependencies or build artifacts; rollback story is identical and setup cost is zero.
-
-## I-3 — Scope + verification layer → `AskUserQuestion` [gate]
-
-**Question**: "Confirm the implementation scope."
-- header: `Scope`
-- description: table + list of TCs excluded as E2E-only
-
-```
-| TC | Name | AC | Test file | UCP |
-|----|------|----|-----------|-----|
-| TC-01 | … | AC-01 | src/lib/filter.test.js | 3 |
-```
-
-- options:
-  - `Implement all`
-  - `High priority only`
-  - `Pick TCs` — ids as text
-  - `Reclassify` — move a TC's Unit target to `(none)` (E2E branch)
-  - `Cancel`
-
-> This is the last human check on the verification layer. The code does not exist yet, so no script can judge it; a keyword heuristic used as a gate gets gamed.
-
-### I-3b — Implementation owner of E2E/manual TCs → `AskUserQuestion` [gate; cannot proceed with a blank]
-
-`(none)` TCs are **decisions, not exclusions**. Show this table first:
+`## Global Constraints` = the contents of config `constraintsFile`, **verbatim** — no summary, no rewrite; this is SDD's only channel to every implementer. If `constraintsFile` is null, derive at most 15 lines from `CLAUDE.md` / `AGENTS.md`, show them, and get one `AskUserQuestion` confirmation first. Then append this block as is:
 
 ```
-N TCs are verified by E2E/manual only. Without a unit test, nothing in the pipeline implements them yet.
-| TC | Name | AC | E2E rationale | Surface to build ((new) selectors / state paths) |
-|----|------|----|---------------|---------------------------------------------------|
-| TC-11 | … | AC-04, AC-15 | focus · render | .remaining-count (new), auth.remainCount (new) |
+- Run tests only through red-gate or the one-shot form of commands.unitTest on a single file. Never a watch-mode command — it never exits. The whole suite is red-gate --all.
+- Traceability join keys: [TC-NN] in task titles, it('UCP-NN: …') in test names. red-gate --test looks tests up by this name.
+- Commit: format the changed files (commands.format, when set), git add the named files, then git commit -F <message file the controller wrote>. Never git add -A / git add . (untracked credentials can sit in the working tree). Never --no-verify.
+- When you conclude a requirement is wrong, or code and a PRD spec value (URL, key or signature basis, field name) differ: implement what the PRD says and leave the conflicting existing code alone. Put the evidence (with the spec source the PRD cites) in the report's `upstream conflict` line. Changing a requirement is a human decision at G3.
+- Do not leave a long run in the background and end the turn without reporting its result. Wait in the foreground.
+- New comments say only what the code cannot: why, constraints, pitfalls, external spec sources. One line as a rule, three at most; doc comments only on exported functions, one or two sentences.
+- Comments never carry work history, future speculation, restated code, or ticket or artifact IDs (issue keys, requirement N, AC-, TC-, UCP-, Task N) — revisions renumber them and the comment turns false. State the reason in words; a needed reference names only the source (`// <spec name> p.18`), no line numbers.
+- Write comments in the project's language the way a native speaker would. Leave existing comments as they are.
 ```
 
-One choice per TC (group identical answers when there are many):
-- `Implement here` — add a **wiring task** to the plan (I-4 wiring rules)
-- `Split` — take the issue key as text
-- `Already implemented` — existing code, verification only (re-confirm when the TC carries `(new)` surface)
+---
 
-Record the decisions in the plan section `## Implementation owners` — `${CLAUDE_PLUGIN_ROOT}/scripts/coverage-gate.mjs` and I-5 read it. Owner values are exactly `Task N`, `split <ISSUE-KEY>`, or `existing`.
+## IMPL
 
-```
-## Implementation owners
-| TC | Owner | Reason |
-|----|-------|--------|
-| TC-11 | Task 15 | wiring — fetch remaining count on entry and render it |
-| TC-17 | existing | shared template applies automatically — regression check only |
-| TC-24 | split PROJ-999 | entry path not reachable yet |
-```
+1. **Execute** → `Skill: superpowers:subagent-driven-development` with the plan path. Workspace (`.superpowers/sdd/<plan-basename>/`), `progress.md`, briefs, reviews, fix rounds and model choice follow SDD.
+   - Before dispatching a task, the controller writes `.superpowers/sdd/<plan-basename>/commit-msg-task-N.txt` (subject in the project's commit style + the trailer the session prescribes, verbatim). The implementer commits it with `-F` and never edits it.
+   - Before dispatching the first task, run the project's commit-msg hook on task 1's message file (JSON on stdout):
+     ```bash
+     node "${CLAUDE_PLUGIN_ROOT}/scripts/commit-msg-check.mjs" .superpowers/sdd/<plan-basename>/commit-msg-task-1.txt
+     ```
+     `ok: true` → overwrite `commit-msg-task-1.txt` with the returned `message`, and write tasks 2..N the same way (trailer present or absent as decided; if `trailerDropped`, no trailer for the whole run). `ok: false` → do not dispatch; show `output` and ask the human. With no hook (`hook: null`), CLAUDE.md / AGENTS.md rules that forbid trailers still win over the session's trailer.
+   - Before dispatch, re-measure the brief's line numbers and `Files:` with `grep -n`; earlier tasks move code after the plan was written.
+   - Tell the task reviewer: `red-evidence.jsonl` and the gate JSON are the source of truth; commit trailers are not a review item.
+   - A gate failure → handle it by [references/failure-routing.md](references/failure-routing.md). The controller never classifies a failure itself. When everything passes, do not read it.
 
-> `Reclassify` above moves a TC from unit to E2E; this question makes sure **its implementer does not disappear with it**. Without it, "nobody owns this" is the default.
+2. **Final gate** — after SDD's final review and **before the workspace is deleted and before finishing**; afterwards the Rulings in `progress.md` are gone.
+   ```bash
+   B=<branch start commit>; W=<worksDir>/<slug>
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/red-gate.mjs" --phase green --plan $W/<slug>-plan.md --all    # regression + ledger audit
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/surface-gate.mjs" --base $B                                    # reachability · vanished tokens
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/coverage-gate.mjs" --prd $W/prd.md --tc $W/tc.md --plan $W/<slug>-plan.md
+   BASE=$B <approvalGates[].check>                                                                    # each entry
+   git diff -U0 $B..HEAD -- '*.js' '*.mjs' '*.cjs' '*.ts' '*.jsx' '*.tsx' '*.vue' '*.svelte' ':!*.test.*' ':!*.spec.*' \
+     | grep -nE '^\+[[:space:]]*(//|\*|/\*|<!--|#).*(<issueKeyPattern>|AC-[0-9]+|TC-[0-9]+|UCP-[0-9]+|Task ?[0-9]+)' || echo "no IDs in new comments"
+   git add $W/red-evidence.jsonl && git commit -m "<slug> RED evidence ledger"
+   ```
+   - `--all` runs every project with two workers against the `unitTest.knownFailuresFile` baseline. If you fix a pre-existing failure, remove it from the baseline.
+   - `failureClass` `RUN_INCOMPLETE` (`routeTo: controller:rerun`) → the suite did not finish; re-run before claiming no regression.
+   - `NOT_COLLECTED` with `--all` → the runner collected zero tests; fix `commands.unitTest` / `unitTest.testFileGlobs` before claiming no regression.
+   - coverage-gate: read `ok` first. `ok: false` → do not open G3; report `error`.
+   - `<issueKeyPattern>` goes into POSIX `grep -E`: write `\d` as `[0-9]`.
+   - `audit.violations` (GREEN without an earlier RED, tests whose last record failed) and `audit.tasksWithoutEvidence` go to G3 as they are.
+   - Apply `superpowers:verification-before-completion`: no completion claim without this output.
 
-## I-4 — Plan → `Skill: superpowers:writing-plans`
+3. **G3 — implementation review** (one `AskUserQuestion`). Put these in the description in this order and ask only what needs a human:
+   1. AC coverage: `missing` first, at the top.
+   2. Ledger audit violations, tasks without evidence.
+   3. SDD's **Rulings I made** and the task reports' `upstream conflict` lines. Ask `Keep` / `Rewind` for each.
+   4. surface-gate:
+      - `unreachableFiles` · `unreferencedExports` → "is this intended?" Surface created by `RED exempt` or characterization tasks must be empty here.
+      - `vanishedTokens` → old identifiers existing specs still use.
+   5. `approvalGates` with output → ask for approval by gate name. A reviewer subagent cannot approve these.
+   6. Publishing source deviations, IDs in new comments.
+   7. The task reports' `style:` lines, with Modify files where `author` won listed first — that is where styles may have mixed — plus the style step's `unmapped` / `noLayerSection`. Not asked separately.
 
-Inject:
+   With a state file, the progress question is one of this call's questions (split the call when the items above already take 4); mark `tdd-impl` done when G3 passes and return to the router with the progress answer.
 
-1. **`Spec:`** = absolute TC path (plus PRD path if present)
-2. **Save location override**: `<worksDir>/<slug>/<slug>-plan.md` — the plan alone keeps the slug in its filename because SDD names its workspace after the plan basename (a plain `plan.md` would make every feature share `.superpowers/sdd/plan/`)
-3. **`## Global Constraints`** = contents of config `constraintsFile`, **verbatim** — no summary, no rewrite; this is SDD's only channel to every implementer. If `constraintsFile` is null: derive ≤15 lines from `CLAUDE.md` / `AGENTS.md`, show them, and get `AskUserQuestion` confirmation before use. Then append these pipeline rules (they apply to every project):
-   - "When code and a PRD spec value (URL, key/signature basis, field name) disagree, do not change the code. Report the spec source the PRD cites and wait for the user — the PRD may have mis-copied the spec."
-   - "When you conclude a PRD/TC requirement is wrong, do not change the requirement yourself. Report it as `upstream conflict` in the task report."
-   - "New comments say only what the code cannot: why, constraints, pitfalls, external spec sources. Never what the code does."
-   - "One line per comment as a rule, three at most. Doc comments (JSDoc etc.) only on exported functions, one or two sentences."
-   - "Comments never carry work history ('moved from X', 'deduplicated'; that goes in the commit message), future speculation ('if we later…'), or restated code ('// success')."
-   - "Comments never carry ticket or artifact IDs (issue keys, requirement N, AC-, TC-, UCP-, Task N). PRD/TC revisions renumber them and the comment turns false. State the reason in words."
-   - "When a reference is needed, give only the source: `// <spec name> p.18`, `// source: <file>`. No line numbers."
-   - "Write comments in the project's language the way a native speaker would. No translationese (literal structures carried over from another language, passive voice with inanimate subjects, noun-phrase chains)."
-   - "Leave existing comments as they are; these rules apply only to comments you write."
-4. **Task rules**
-   - one implement TC = one task
-   - title **must** be `### Task N: [TC-NN] <name>` — `[TC-NN]` is the traceability join key
-   - `**Files:** Test:` = the TC's `Unit target` **verbatim** (never invent a path)
-   - `**Interfaces:**` = the UCP table's `Target (module#export)` column
-   - every UCP row → at least one `expect` in Task Step 1
-   - test names **`it('UCP-NN: <description>')`** — the exact `red-gate --test` target
-   - a task that rewrites the whole pattern of an existing file (code with no settled style to blend into) carries `**Full replacement:** <scope — reason>` in its body. Implementers never switch to a full rewrite without it
-5. **Wiring-task rules** (TCs answered `Implement here` at I-3b)
-   - same title shape `### Task N: [TC-NN] <name>`. When one task owns several TCs, write the others as **bracketed** `[TC-NN]` in the body — a bare `TC-NN` counts only as a reference
-   - **get RED from a component mount test** when the UI framework supports one — follow the mount-test convention in `constraintsFile` / `unitTest.testNaming` (do not assume a framework). "Does the button call the new API", "is the remaining count rendered" are mount-testable. That test is the task's `**Files:** Test:` and the red-gate steps are the normal ones
-   - only what a mount test cannot observe (real focus movement, native round trips, routing round trips) gets `**RED exempt:** <reason>` and no red-gate steps. Exempt tasks **must** be checked in the I-7 reachability report
-   - a task that changes existing files first pins current behaviour with a **characterization test**
-   - when the PRD's `## Design Guide › Publishing source` lists a source file for the screen, put this in the brief verbatim: "Copy markup (tags, class combinations, visibility conditions) from the source `<file>`. Do not rewrite it. Report every place you differ from the source as `source deviation: <location> — <reason>`." A matching stylesheet does not help when the markup differs — hooks exist and values are right, so no automated check fails
-6. **`## Implementation owners`** = the I-3b decision table, verbatim
-7. **Checkbox shape** = [task-checkbox-contract.md](references/task-checkbox-contract.md)
+4. **Rewind** — if any item got `Rewind`, ignore the progress answer of the same call.
+   1. The controller edits the PRD and the TC file, and adds at the top of both: `> **Revised**: <YYYY-MM-DD> — <overturned requirement> → <new requirement>`.
+   2. Pass `coverage-gate --prd --tc --plan --lint`: `ok: true` and empty `lint.errors`.
+   3. Append a fix task with its RED contract to the plan, re-run `plan-context.mjs`, and run only that task through SDD. That task also fixes the affected existing test expectations.
+   4. Re-run from step 2 (final gate) and open G3 again. A rewound implementation is done only after a human has seen it at G3.
 
-## I-4b — Style context [automatic]
+   G3 passed → run SDD's `finishing-a-development-branch` here only when this skill runs standalone or the state's `options` have `-no-e2e`; otherwise the router runs it after the last gate's `Done`. Next is `dev-pipeline:e2e-test <worksDir>/<slug>/tc.md`; in a pipeline the router continues (and refreshes the predicted selectors first). Standalone, run `dev-pipeline:ui-selector-extractor` on the new files and correct the `e2e` TCs' checkpoint tables before generating specs: new-mode selectors were predictions.
 
-```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/style/plan-context.mjs" --plan <worksDir>/<slug>/<slug>-plan.md [--style <name>]
-```
+---
 
-- Picks the runner's style file (`--style` → the plan's `**Style:**` line → the file listing `git config user.email` → `style.defaultStyle`), writes it to the plan header, and puts a `Read context` step before each task's first checkbox: the task's development layers (from `Files:`) and the matching style sections. Implementer and task reviewer both read it from the task brief.
-- `{"style":null,"skipped":true}` → no style file for this runner; go on. Mention `/dev-pipeline:style-extract` once in the I-8 report.
-- Exit 2 → show stderr. It names the missing piece: an unknown `--style`, a `style.defaultStyle` that does not exist, or a `**Style:**` line pointing at a deleted file. Fix the name or remove that line, then re-run.
-- `fullReplace` non-empty → one `AskUserQuestion` listing each task's scope and reason; a declined task loses its marker and goes back to `writing-plans` as an in-place change.
-- `unmapped` (paths in no layer) and `noLayerSection` go to the I-8 report. They never block.
-- Never copy style content into `## Global Constraints`: the task reviewer treats that section as binding requirements and would flag tendencies as violations.
-- Re-run it whenever tasks are added to the plan (upstream rewind); it is idempotent.
+## Left to judgement (never a deterministic gate)
 
-## I-5 — Traceability gate [automatic]
-
-```bash
-TC=<worksDir>/<slug>/tc.md
-PLAN=<worksDir>/<slug>/<slug>-plan.md
-# TC side: unit TCs / E2E-manual TCs
-awk '/^### TC-/{tc=$(2); sub(/:$/,"",tc)}
-     /^\| \*\*Unit target\*\*/{ print tc, ($(0) ~ /\(none\)/ ? "E" : "U") }' "$TC" | sort -u > /tmp/tc.kinds
-awk '$(2)=="U"{print $(1)}' /tmp/tc.kinds > /tmp/tc.unit
-awk '$(2)=="E"{print $(1)}' /tmp/tc.kinds > /tmp/tc.e2e
-# plan side: bracketed [TC-NN] in tasks + TCs in the owners table
-grep -oE '\[TC-[0-9]+\]' "$PLAN" | tr -d '[]' | sort -u > /tmp/plan.ids
-sed -n '/^## Implementation owners/,/^## [^I]/p' "$PLAN" | grep -oE '^\| *TC-[0-9]+' | grep -oE 'TC-[0-9]+' | sort -u > /tmp/owner.ids
-
-echo "UNIT=$(wc -l < /tmp/tc.unit) E2E=$(wc -l < /tmp/tc.e2e) PLAN=$(wc -l < /tmp/plan.ids) OWNER=$(wc -l < /tmp/owner.ids)"
-echo "--- unit TCs without a task";        comm -23 /tmp/tc.unit /tmp/plan.ids
-echo "--- E2E/manual TCs without an owner"; comm -23 /tmp/tc.e2e <(sort -u /tmp/plan.ids /tmp/owner.ids)
-```
-
-**Read the counts first.** An empty list and a broken `awk` that caught nothing look the same — **silence is not success**. `UNIT=0` and `E2E=0` together means parsing broke; treat as gate failure.
-
-Both lists empty → pass. **Unit TC without a task** → back to `writing-plans`. **E2E/manual TC without an owner** → back to I-3b. Comparing unit TCs only made it structurally impossible for this gate to see that an E2E TC had no implementer.
-
-> `writing-plans` self-review has a coverage pass, but that is an LLM re-reading its own output. A quietly dropped TC surfaces hours later in the E2E branch.
-
-## I-6 — Execute → `Skill: superpowers:subagent-driven-development`
-
-Pass the plan path. SDD owns: workspace `.superpowers/sdd/<plan-basename>/`, `progress.md` ledger, per-task briefs, one fresh implementer per task, task reviewer, fix rounds ≤5 (model escalation at round 4), final branch review, `finishing-a-development-branch`.
-
-**Tell the SDD task reviewer**: trust `red-evidence.jsonl` and the gate JSON as the single source of truth; spend judgement only on the "left to humans" items below. **Commit trailers are not a review item** — reviewers also claim their own model name is canonical and flag correct trailers as defects.
-
-### Dispatch rules
-
-Done by the controller **before** each dispatch, or pasted **verbatim** into the brief:
-
-1. **Write the commit message file first** — `.superpowers/sdd/<plan-basename>/commit-msg-task-N.txt`. The implementer commits it with `git commit -F`.
-2. **Re-measure line numbers and the `Files:` list** — earlier tasks add and move files after the plan is written. `grep -n` just before dispatch; fix the brief if it drifted.
-3. Brief, verbatim: "Do not run long commands in the background and end the turn without reporting the result. Wait in the foreground."
-4. Brief, verbatim: "Run tests only through red-gate or the one-shot form of `commands.unitTest` for a single file. Never a watch-mode command — it never exits."
-
-### Upstream rewind — when implementation overturns a requirement
-
-The pipeline flows upstream → downstream only. When a task report says `upstream conflict: yes`, the controller rewinds **before dispatching the next task**:
-
-1. Show the places to rewind as a table and confirm with `AskUserQuestion` — `Rewind as reported` / `Keep the original requirement (revert the implementation)` / `I'll enter the change`. **Changing a requirement is a human decision.**
-2. On confirmation the controller edits the PRD (requirements, ACs, related tables) and the TC file (UCP expectations, checkpoints, success criteria), and adds one revision line at the top of both: `> **Revised**: <YYYY-MM-DD> — found while implementing Task N: <old requirement> → <new requirement>`
-3. Affected unit-test expectations are fixed in **the same task's fix round**, without consuming a round — this is a requirement change, not a defect.
-4. The I-7 `coverage-gate` then runs against the revised PRD. Skip the rewind and the dropped AC shows up as `missing`.
-
-> In a downstream project one overturned requirement meant 4 PRD places, 4 TC places and 7 unit-test expectations rewound from memory.
-
-Failure handling: every value comes from red-gate's `failureClass` / `routeTo` / `consumesFixRound`. **The controller never classifies on its own.** Table: [failure-routing.md](references/failure-routing.md).
-
-Cost tiers: deterministic gates always via direct Bash (no LLM re-spawn); per-task green runs a single file; the full suite runs once in I-7.
-
-## I-7 — Final gate [automatic]
-
-```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/red-gate.mjs" --phase green --plan <worksDir>/<slug>/<slug>-plan.md --all
-```
-
-> `--all` uses `unitTest.knownFailuresFile` as the baseline when set: only failures absent from it count as regressions; output `collateral.knownFailuresSkipped` shows how many were excluded. **If you fix a pre-existing failure, remove it from the baseline** — otherwise it can break again silently.
-
-Then run every `approvalGates[].check`:
-
-```bash
-<gate.check>   # for each entry
-```
-
-Non-empty output → **escalate to the user** with the gate name; a reviewer subagent cannot approve these.
-
-Then the report-only gates (they never block):
-
-```bash
-# ticket/artifact IDs in new comments — <issueKeyPattern> from config; spec IDs that happen to match it can stay
-git diff -U0 <base>..HEAD -- '*.js' '*.mjs' '*.cjs' '*.ts' '*.jsx' '*.tsx' '*.vue' '*.svelte' ':!*.test.*' ':!*.spec.*' \
-  | awk '/^\+\+\+ b\//{f=substr($(0),7)} /^\+[[:space:]]*(\/\/|\*|\/\*|<!--|#)/ && /(<issueKeyPattern>|AC-[0-9]+|TC-[0-9]+|UCP-[0-9]+|Task ?[0-9]+|[Rr]equirement ?[0-9]+)/{print f": "substr($(0),2)}' \
-  | grep . || echo "no IDs in new comments"
-node "${CLAUDE_PLUGIN_ROOT}/scripts/surface-gate.mjs" --base <base>
-node "${CLAUDE_PLUGIN_ROOT}/scripts/coverage-gate.mjs" --prd <worksDir>/<slug>/prd.md --tc <worksDir>/<slug>/tc.md --plan <worksDir>/<slug>/<slug>-plan.md
-```
-
-**What `surface-gate` reports** — a unit gate stays green even when the code has **zero callers**, so this counts them separately.
-- `reachability.unreachableFiles` / `unreferencedExports` — files and exports added on this branch that production code never uses. Non-empty → ask the user the `question` text verbatim ("is this intended?"). Building a library layer first can be deliberate, so it **does not block**. Surface created by `RED exempt` wiring tasks must be empty here.
-- `vanishedTokens` — identifiers and path fragments this branch removed or renamed that are gone from production but still present under `surfaceGate.specPaths`. Renaming a query knob or an endpoint kills existing specs **silently** (the old parameter is simply ignored). `comment: true` hits are leftovers in comments and not urgent.
-- `limits` — members added to existing files without an export line (store actions, composable return members) are not detected; **code that is connected but calls the wrong target** is not detected either. Reachability is necessary, not sufficient.
-
-**What `coverage-gate` reports** — per AC: `implemented` (a related TC is bracketed `[TC-NN]` in a task) / `verifyOnly` (mentioned bare in a task body, or owner `existing`) / `split` / `excluded` / `missing`. `missing` is likely a defect — put it at the top of the completion report.
-
-Apply `superpowers:verification-before-completion` — **no completion claim without the actual command output above.**
-
-## I-8 — E2E handoff → `AskUserQuestion`
-
-```
-✅ TDD implementation complete — <worksDir>/<slug>/<slug>-plan.md
-   Tasks N done (wiring K, RED exempt R) / unit tests M passing
-   RED evidence: .superpowers/sdd/<slug>-plan/red-evidence.jsonl
-
-AC coverage (coverage-gate)
-   A ACs — implemented a · verify-only v · split s · excluded x · missing m
-   missing: AC-NN, …            ← warn at the top when non-zero
-   | AC | State | TC | Owner |
-
-Unconnected code (surface-gate)
-   files: … / exports: …        ← "is this intended?"
-   old identifiers left in existing specs: <token> → <spec:line> …
-
-IDs in new comments (I-7 grep)
-   <file>: <comment>          ← "none" when empty; otherwise ask whether to rewrite them as reasons
-
-Publishing source deviations (screens with a source only — collected from task reports)
-   <file:line> — <reason>       ← "none" when empty
-
-Style (only when I-4b picked a style file — task reports' `style:` lines; I-4b report)
-   Task N — author — <reason>      ← Modify files where the author's style won, listed first
-   Task N — surrounding — <reason>
-   unmapped: <paths> / no style section: <layer ids>   ← or "no style file — /dev-pipeline:style-extract"
-
-Upstream rewinds (confirmed through the rewind procedure)
-   Task N — <old requirement> → <new requirement> / PRD <places> · TC <places>
-
-Next — E2E spec batch generation
-  /dev-pipeline:e2e-test <worksDir>/<slug>/tc.md
-  → K e2e-suitable TCs → one spec file each
-```
-
-- header: `E2E handoff`
-- options:
-  - **`Refresh selectors, then continue (Recommended)`** — new-implementation CP targets were **predictions** from sibling files. The files now exist: run `dev-pipeline:ui-selector-extractor` on them, update the `e2e` TCs' checkpoint tables in place, then run `/dev-pipeline:e2e-test`.
-  - `Continue as-is` — hand off unchanged; the e2e runtime loop catches wrong targets as `NO_CANDIDATE`, at the cost of extra iterations.
-  - `Later` — report the TC path and the remaining `e2e` TCs only.
-
-> No auto-chaining: `/dev-pipeline:e2e-test` has its own gates and a 5-iteration runtime loop. Two long orchestrations in one context without a human checkpoint push the context out.
-
-## Left to human/reviewer judgement (never a deterministic gate)
-
-| Decision | Owner | Why no contract |
+| Decision | Owner | Why |
 |---|---|---|
-| Is this requirement unit / E2E / manual | LLM proposes → **human confirms** (I-3) | no code yet, nothing for a script to read |
-| Does the test check behaviour or implementation detail | SDD task reviewer | no syntactic signature |
-| Is the GREEN implementation really minimal | SDD task reviewer | "minimal" is relative to intent |
-| Is AC → TC decomposition sufficient | human | coverage itself is counted by `coverage-gate`; whether the ACs are right and the TC set complete is not provable |
-| Naming, structure, items in `approvalGates` | human | no oracle; these are approvals, not checks |
-| Do new comments follow the comment rules (reason only, concise, no translationese) | SDD task reviewer | translationese and verbosity have no syntactic signature; only IDs are counted by the I-7 grep |
-| Legitimate one-shot timer vs forbidden polling | reviewer | syntactically identical; a detector that flags both teaches suppression |
+| unit / E2E / manual classification, implementation owner | LLM proposes → human (G2) | no code yet, nothing for a script to read; a keyword heuristic used as a gate gets gamed |
+| Does the test check behaviour or implementation detail | SDD reviewer | no syntactic signature |
+| Is the GREEN implementation minimal | SDD reviewer | "minimal" depends on intent |
+| Naming, structure, items in `approvalGates` | human | no oracle; these are approvals |
+| Do new comments follow the comment rules | SDD reviewer | only IDs are counted by grep |
+| One-shot timer or forbidden polling | reviewer | syntactically identical |
 
 ## Related
 
-- `../tc-extract/SKILL.md` — produces the input (new-implementation mode)
-- `../e2e-test/SKILL.md` — screen verification after implementation
-- `../style-extract/SKILL.md` — builds the layer catalog and the style files I-4b reads
-- `../auto-dev-pipeline/SKILL.md` — 4-stage orchestrator containing this skill
-- `${CLAUDE_PLUGIN_ROOT}/scripts/red-gate.mjs` — RED/GREEN verification + evidence ledger
-- `${CLAUDE_PLUGIN_ROOT}/scripts/surface-gate.mjs` — reachability (unconnected new files/exports) + vanished tokens (old identifiers left in existing specs)
-- `${CLAUDE_PLUGIN_ROOT}/scripts/coverage-gate.mjs` — AC → TC (→ Task) coverage; shared by tc-extract and I-7
+- `${CLAUDE_PLUGIN_ROOT}/scripts/red-gate.mjs` — RED / GREEN / characterization verdicts + ledger `<worksDir>/<slug>/red-evidence.jsonl` + `--all` audit
+- `${CLAUDE_PLUGIN_ROOT}/scripts/coverage-gate.mjs` — AC → TC → task coverage and PRD / TC / plan lint
+- `${CLAUDE_PLUGIN_ROOT}/scripts/surface-gate.mjs` — reachability · vanished tokens
+- `${CLAUDE_PLUGIN_ROOT}/scripts/commit-msg-check.mjs` — dry-runs the project's commit-msg hook on a message file; drops the trailer when the hook rejects it
+- `${CLAUDE_PLUGIN_ROOT}/scripts/style/plan-context.mjs` — style file pick + per-task development-layer context step
+- `dev-pipeline:style-extract` — builds the layer catalog and the style files
+- `dev-pipeline:tc-extract` — produces the input (new mode); `dev-pipeline:e2e-test` — screen verification afterwards

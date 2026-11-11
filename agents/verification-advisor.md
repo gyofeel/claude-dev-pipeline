@@ -55,13 +55,13 @@ Rules: prefer `ui.testIdAttribute`, then `id`, then a static semantic class, the
 
 ### 3. Focus candidates (`Focus` selected)
 
-Elements that hold focus after the entry path: `autofocus`, explicit `.focus()` calls, `tabindex`, focus-trap containers, or — when `adapter.focusExpr` is configured — the app's focus identifiers set in the page/composables:
+Elements that hold focus after the entry path: `autofocus`, explicit `.focus()` calls, `tabindex`, focus-trap containers, or — when `ui.stateBridge.focusExpr` is configured — the app's focus identifiers set in the page/composables:
 
 ```bash
 grep -rnE "autofocus|\.focus\(\)|tabindex|setFocus|focusId" <pageFile> <imported files> | head -30
 ```
 
-Condition forms: `matches('<css>')` for pointer projects; `includes('<id>')` when a focus expression exists.
+A Focus checkpoint reads `ui.stateBridge.focusExpr` when set, otherwise the focused element's opening tag (e.g. `<input class="search" data-testid="search-input"`). Condition forms: `includes('<focus id or a fragment of that tag>')` or a matcher call (`toBe('…')`). Never `matches('<css>')` — the assembler rejects it.
 
 ### 4. State candidates (`State` selected, bridge present)
 
@@ -70,7 +70,7 @@ Condition forms: `matches('<css>')` for pointer projects; `includes('<id>')` whe
    grep -nE "use[A-Z]\w*Store|from ['\"].*(store|stores|state)/" <pageFile> <imported files> | head -20
    ```
 2. Read those modules under `ui.stateStoreDir`; extract top-level state fields (initial-state object, `state()`, `useState`/`createStore` shape).
-3. Propose `<store>.<field>` with a condition by type: nullable → `truthy`; boolean → `toBe(true)`; array → `length(N)` or `truthy`; string → `toBe('…')` when the value is evident.
+3. Propose `<store>.<field>` with a condition by type: nullable → `truthy`; boolean → `toBe(true)`; array → `toHaveLength(N)` or `truthy`; string → `toBe('…')` when the value is evident.
 
 Paths are relative to `ui.stateBridge.globalExpr` — write `<store>.<field>`, never the global expression. The reviewer's runtime probe will reject anything that resolves to `undefined`, so only propose fields that exist in source.
 
@@ -108,9 +108,9 @@ Before finalising, check whether a candidate is structurally rare for the scenar
   - { target: "testid:product-list", condition: "visible", reason: "Catalog.tsx:12 root list, always rendered" }
   - { target: ".empty-state", condition: "hidden", reason: "Catalog.tsx:30 guard `items.length === 0`" }
 - Focus:
-  - { target: "testid:search-input", condition: "matches('[data-testid=search-input]')", reason: "Catalog.tsx:18 autofocus" }
+  - { target: "focus", condition: "includes('search-input')", reason: "Catalog.tsx:18 autofocus" }
 - State:                                          ← omit when stateBridge is null or not selected
-  - { path: "catalog.items", condition: "length(3)", reason: "stores/catalog.js:9 array state; warning: count depends on fixture" }
+  - { path: "catalog.items", condition: "toHaveLength(3)", reason: "stores/catalog.js:9 array state; warning: count depends on fixture" }
 - existingPattern: <spec path>                    ← only if found
 - confidence: high | medium | low
 - notes: <dropped types, rarity warnings, uncertain items>
@@ -127,5 +127,6 @@ Omit sections for types not selected. Max 4 candidates per type in the final lis
 ## Rules
 
 - Every candidate cites file:line.
-- Targets use descriptor forms from `${CLAUDE_PLUGIN_ROOT}/references/adapter-contract.md` (`testid:`, `role:`, `text:`, or bare css).
+- Targets use descriptor forms from `${CLAUDE_PLUGIN_ROOT}/references/adapter-contract.md` (`testid:`, `role:`, `text:`, `css:`, or bare css); conditions use the forms in `${CLAUDE_PLUGIN_ROOT}/skills/tc-extract/references/tc-format.md` (Checkpoints) — anything else stops the spec assembler.
+- When `e2e.softTrack` is set and a candidate's target or path touches a `softTrack.patterns` entry (a state the test environment cannot reach), keep it and add `soft: true` with the reason; the spec records it without failing the test.
 - No product-specific store names, focus ids, or environment assumptions in this file — everything comes from the repo being analysed and the config.

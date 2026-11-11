@@ -1,271 +1,99 @@
 ---
 name: auto-dev-pipeline
-description: Use when starting a feature that has no code yet and the user wants to go from scattered requirements to working, tested code — "kick off this feature", "build it with TDD from the requirements", "requirements through implementation". Also use to resume such a run, or when the user wants to stop after implementation and leave E2E for later ("skip E2E", "implementation only"). For code that already exists and only needs verification, use dev-pipeline:auto-e2e-pipeline.
+description: Use when starting a feature that has no code yet and the user wants to go from scattered requirements to working, tested code — "kick off this feature", "build it with TDD from the requirements", "requirements through implementation". Also use to resume such a run, to start from a PRD written outside the pipeline, or when the user wants to stop after implementation and leave E2E for later ("skip E2E", "implementation only"). For code that already exists and only needs verification, use dev-pipeline:auto-e2e-pipeline.
 ---
 
-# Development pipeline (new feature, no code yet)
-
-Chains four skills for **a feature with no code**, pausing at a human gate between stages:
+# Development pipeline router (new feature, no code yet)
 
 ```
-dev-pipeline:prd-extract →G→ dev-pipeline:tc-extract →G→ dev-pipeline:tdd-implement →G→ dev-pipeline:e2e-test
-requirements                 TCs (new-impl mode)          TDD implementation             specs + runtime validation
-                                  G = artifact review gate (user confirms)
-
-with -no-e2e:  … → dev-pipeline:tdd-implement →G→ (end)
+PRD ─G1→ TC ─G2→ PLAN ─G3a→ IMPL ─G3→ E2E ─G4
+ ↑                                  └ -no-e2e: ends at G3 (E2E can be resumed later)
+ └ import (external PRD) ─G1→
 ```
 
-> **What gets implemented is decided by `tdd-implement` I-3b, not by each TC's verification layer.** TCs with a `Unit target` become unit tasks; E2E/manual TCs are assigned there to a `wiring task`, `split`, or `existing`. `e2e-test` only generates specs and never implements, so if that decision is left blank the screen behaviour ships unimplemented while every gate is green (observed downstream).
+This skill reads the state, calls the next node, and opens the gate when the node finishes. Nothing else. Nodes (the sub-skills) write the artifacts and make the decisions inside them.
 
-**Gate contract, slug rules, and the state-file schema are defined once in `../auto-e2e-pipeline/references/shared-contract.md`. Read it and follow it exactly.** Only the state file's `pipeline` value differs: `"auto-dev-pipeline"`.
+**Read first**: `../auto-e2e-pipeline/references/shared-contract.md` — nodes and deterministic checks · reading check output · routing · external PRD import · node call convention (`--pipeline`) · gates and the next session · slug · state file. Here the state file's `pipeline` is `"auto-dev-pipeline"` and its stages are `prd-extract` · `tc-extract` · `tdd-plan` · `tdd-impl` · `e2e-test`.
 
 ## Usage
 
 ```
-/dev-pipeline:auto-dev-pipeline                          # from the start (issue key auto-detected from branch)
-/dev-pipeline:auto-dev-pipeline PROJ-1234                # issue key given
-/dev-pipeline:auto-dev-pipeline PROJ-1234 home filter    # issue key + feature hint
-/dev-pipeline:auto-dev-pipeline <feature or slug>        # resume target
-/dev-pipeline:auto-dev-pipeline <prd.md or tc.md path>   # start mid-way
-/dev-pipeline:auto-dev-pipeline -no-e2e                  # stop after implementation
-/dev-pipeline:auto-dev-pipeline -no-e2e PROJ-1234        # option + issue key
+/dev-pipeline:auto-dev-pipeline                          # resume the run in progress, or start a new one
+/dev-pipeline:auto-dev-pipeline PROJ-1234 list filter    # issue key + feature hint
+/dev-pipeline:auto-dev-pipeline <slug>                   # resume that run
+/dev-pipeline:auto-dev-pipeline <tc.md or *-plan.md path>  # start at PLAN or IMPL
+/dev-pipeline:auto-dev-pipeline <prd path>               # import an external PRD, or resume if it has a state file
+/dev-pipeline:auto-dev-pipeline -no-e2e PROJ-1234        # stop after implementation
 ```
 
-## Argument parsing
+**Arguments**: `-no-e2e` is recorded in the state's `options`. A match of config `issueKeyPattern` is the issue key. A file path routes by kind (contract, Routing). Anything else is the feature description or the resume target (slug).
 
-Extract three things from `$ARGUMENTS`, in any order:
-
-| Item | Pattern | Effect |
-|---|---|---|
-| **Option** `-no-e2e` | literal | **Step 4 (E2E) is not run.** Finish after the implementation gate (G3) |
-| **Issue key** | config `issueKeyPattern` (e.g. `PROJ-1234`) | slug prefix; if absent, taken from the branch name (shared contract) |
-| **Feature hint / path** | remaining text | new work: draft feature name; resume: target (feature, slug, or file path) |
-
-No option → default: run through Step 4.
-
-Record options in the state file's `options` array. On resume they are restored, but **options given at resume time win** (e.g. stopped with `-no-e2e`, resumed without it → E2E runs).
-
-> **`-no-e2e` keeps the TC file's screen-level cases intact.** Run `/dev-pipeline:e2e-test <tc path>` later, or resume this pipeline without the option. The completion report prints both commands.
-
-## What this command does NOT do (boundaries — mandatory)
-
-- **It does not replace the sub-skills' interviews.** All four keep their own `AskUserQuestion` flows; this command asks only at **artifact review gates**.
-- **It does not modify the sub-skills.** Each runs standalone.
-- **It does not create artifacts.** Files are always written by the sub-skill.
-- **It does not implement code.** `tdd-implement` delegates that to `superpowers:subagent-driven-development`.
-
----
-
-## Step 0 — Load config and check for resumable work
+## Step 0 — Config
 
 ```bash
 node "${CLAUDE_PLUGIN_ROOT}/scripts/config-load.mjs"
 ```
 
-Missing or invalid → stop: "No `.agents/pipeline.config.json`. Run `/dev-pipeline:init` first."
+Missing or invalid → stop: "No `.agents/pipeline.config.json`. Run `/dev-pipeline:init` first." Use the resolved `worksDir`, `e2e.specsDir`, `e2e.kitDir`, `issueKeyPattern`, `branchPrefix`, `locale`. Then route (contract, Routing).
 
-Same as `auto-e2e-pipeline` Step 0, with one extra artifact to look for:
+## Nodes
 
-```bash
-ls <worksDir>/*/state.json 2>/dev/null
-ls <worksDir>/*/prd.md <worksDir>/*/tc.md <worksDir>/*/*-plan.md 2>/dev/null
-```
+| Node | Call | What the human decides at the gate |
+|---|---|---|
+| PRD | `Skill: dev-pipeline:prd-extract --pipeline` (+ feature description, issue key) — or the contract's External PRD import | slug, which `## Open Questions` items block progress |
+| TC | `Skill: dev-pipeline:tc-extract <worksDir>/<slug>/prd.md --mode new --pipeline <slug>` | unit / E2E / manual classification, the implementation owner of each TC without a unit test (`implement` / `split <issue key>` / `existing`), scope |
+| PLAN | `Skill: dev-pipeline:tdd-implement <worksDir>/<slug>/tc.md` | whether the plan's test code (the RED contract) captures the requirements correctly |
+| IMPL | `Skill: dev-pipeline:tdd-implement <worksDir>/<slug>/<slug>-plan.md` | missing ACs, rulings and upstream deviations (keep or rewind), unreachable code, new component-scoped styles |
+| E2E | see "E2E node" below | the spec results' review items |
 
-A `-plan.md` means implementation started. Also read the SDD ledger to place the resume point precisely:
+`dev-pipeline:tdd-implement` opens the PLAN and IMPL gates (G3a, G3) itself, puts the progress question into that same `AskUserQuestion`, and updates the `tdd-plan` / `tdd-impl` stages. The router does not ask again: it updates `next` and carries out the progress answer tdd-implement returns.
 
-```bash
-cat .superpowers/sdd/<slug>-plan/progress.md 2>/dev/null | head -20
-```
+After the last gate's `Done` (G4, or the completion report when the E2E node finishes without E2E TCs), the router runs `superpowers:finishing-a-development-branch`. With `-no-e2e`, tdd-implement already ran it at G3.
 
-Tasks marked `Task <N>: complete` in the ledger **are finished. Never re-run them** — skipping this check re-executes every completed task, the worst possible waste.
+**The deterministic checks are already in the node output.** The gate never re-asks them as a checklist.
+- G1: `coverage-gate --prd --lint`
+- G2: `coverage-gate --prd --tc --lint` (AC coverage + TC lint)
+- G3a: `coverage-gate --prd --tc --plan --lint`
+- G3: `red-gate --all` audit · `surface-gate` · `coverage-gate`
 
-**Option restore** — read `options` from the state file and apply them; options given in this invocation take precedence.
+The exact commands and how to read their output are in the contract. If `ok` is `false`, or `lint.errors` or `uncovered` is non-empty, do not open the gate; re-run the node.
 
-If the `e2e-test` stage is `skipped` (from `-no-e2e`) and this resume has no option, add one more choice to the resume question:
+**The implementation owner, not the verification layer, decides what gets built.** A TC without a unit test still gets a wiring task in PLAN when its owner is `implement`. PLAN is never skipped, even with zero unit TCs: for a feature with no code, zero unit TCs means all of the implementation is on the screen side, not that nothing needs building.
 
-- `Continue with the E2E stage only` — implementation is done; run from Step 4
+## E2E node
 
-**Issue key + early collision check** [new work only] — shared contract order: ① `$ARGUMENTS` → ② `git branch --show-current`. A hit means the user is never asked. Then the contract's early collision check; a hit routes to the resume flow. Resumed work skips this.
-
----
-
-## Step 1 — Requirements
-
-### 1-a. PRD
-
-`Skill: dev-pipeline:prd-extract`, passing any feature info from `$ARGUMENTS`.
-
-**As soon as the interview settles the feature name**, go to 1-b — *before* `prd-extract` saves.
-
-### 1-b. Slug confirmation + pre-emption check → PRD save [new work only]
-
-Run the shared contract's **slug confirmation** and **pre-emption check** with the feature name from 1-a. Pass the slug to `prd-extract` for saving; record `slug` and `issue` in the state file.
-
-This pipeline **creates a branch** (`tdd-implement` I-2), so the slug also fixes the branch name `<branchPrefix><slug>`. Getting it wrong here misaligns every artifact plus the branch.
-
-Then **Gate G1**.
-
-### Gate G1 — PRD review
-
-- Metrics: `AC N · requirements N · server interface [yes/no/pass] · spec I/Fs unmatched N of N · platform interface [yes/no/pass/n-a] · UI scenarios [yes/no/pass] · publishing source [yes/no] · open questions N`
-- Checklist:
-  - required slots (feature name · target screen · acceptance criteria) carry no `?unclear` marker
-  - **each AC is implementation-sized** — one AC covering a whole screen bloats the TCs and tasks downstream
-  - **when an external interface spec was the input**: no unhandled unmatched row in `Spec I/F cross-check`, every copied spec value (URL · key basis · field) has a source, and when the spec lists both proxy and target URLs the one the web client calls is named — a requirement missed here never surfaces in the later AC/TC checks
-  - screens with a publishing deliverable have their paths in the `Publishing source` table — wiring tasks copy markup from it
-
-> A PRD is optional. A hand-written spec document is accepted as input (if it lacks the standard headers, only the AC list is confirmed with the user). In that case skip Step 1 and use that file as `**Spec:**`.
-
----
-
-## Step 2 — Test case extraction (new-implementation mode)
-
-`Skill: dev-pipeline:tc-extract` with the **PRD path confirmed at G1**, **explicitly passing new-implementation mode.**
-
-> This orchestrator already knows there is no code, so it **auto-answers** `tc-extract`'s implementation-state question (`New implementation — no code`). The user is not asked again.
-
-Then **Gate G2**.
-
-### Gate G2 — TC review
-
-- Metrics: `ACs without a TC N of N · TC N (unit N · e2e N · manual N) · UCP N · new files N`
-- **AC check — run it first; if anything is uncovered, G2 is not approved.**
-  ```bash
-  node "${CLAUDE_PLUGIN_ROOT}/scripts/coverage-gate.mjs" --prd <worksDir>/<slug>/prd.md --tc <worksDir>/<slug>/tc.md
-  ```
-  Non-empty `uncovered` → before offering the gate options, have the user pick one per AC:
-  - `Add TC` — back to Step 2 to write that AC's TC
-  - `Exclude` — take a reason and record it in the TC file's `## AC exclusions` table (`| AC-NN | reason |`); it reappears as `excluded` in the completion coverage table
-
-  When G2 counted only output volume (TCs, UCPs), a whole AC could drop out while the gate stayed green. Also read `unknownRefs` (TCs pointing at ACs the PRD does not have).
-- Checklist:
-  - **the `Unit target` classification is right** — the hardest decision to undo in this pipeline. Anything listed in config `unitTest.excludedAreas` that got a unit target will burn fix rounds and end up back in E2E
-  - predicted targets and state paths carry the `(new)` suffix — **`(new)` is DOM and state that does not exist yet, i.e. the list of things to build.** On E2E-only TCs it is the basis for the owner decision at `tdd-implement` I-3b; real values replace it in the E2E stage
-  - `## Implementation surface` places new files where the project structure expects them
-
-### Right after G2 — zero unit targets still go to Step 3
-
-Zero TCs with a `Unit target` does **not** skip implementation. This pipeline handles features with no code, so "no unit targets" means "all of the implementation is on the screen side", not "nothing to implement". `tdd-implement` decides the owners of the E2E/manual TCs at I-3b and creates wiring tasks.
-
-> This spot used to offer `Skip implementation, go to E2E`. For a feature with no code, that choice sends E2E specs to verify a screen that does not exist.
-
----
-
-## Step 3 — TDD implementation
-
-`Skill: dev-pipeline:tdd-implement` with the **TC path confirmed at G2**.
-
-> `tdd-implement` owns its own precondition gate (I-0), scope confirmation (I-3), plan writing, and SDD execution loop. This orchestrator does not intervene inside it.
-
-Then **Gate G3**.
-
-### Gate G3 — Implementation review
-
-- Metrics: `tasks N (wiring N · RED exempt N) · unit tests N passing · commits N · RED evidence N · ACs missing N · unconnected N`
-- Checklist:
-  - **each RED entry in `red-evidence.jsonl` precedes its GREEN entry in time** — the only proof TDD actually happened
-  - `git log --oneline` shows one commit per task and **no `--no-verify` bypass**
-  - for every config `approvalGates[]` entry whose `check` printed output: approve it explicitly or send it back
-  - **no `missing` in the AC coverage** — the `coverage-gate` table in the `tdd-implement` completion report; a `missing` AC is a defect
-  - **unconnected new files/exports are intended** — `surface-gate` `reachability`; tests pass but the app cannot reach this code
-  - **with `-no-e2e`, always read `surface-gate` `vanishedTokens`** — without an E2E run it is the only signal that existing specs broke silently
-  - **publishing source deviations have acceptable reasons** — places where markup differs from the source on screens that have one
-  - **after an upstream rewind**: the `> **Revised**:` lines at the top of the PRD/TC match the actual edits, and it is clear what changed against what was approved at G1/G2
-
-Confirm with:
-
-```bash
-cat .superpowers/sdd/<slug>-plan/red-evidence.jsonl | head -40
-BASE=$(git merge-base HEAD $(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null || echo main))
-git log --oneline $BASE..HEAD
-# then each approvalGates[].check from the config, e.g.:
-#   BASE=$BASE bash -c "<approvalGates[i].check>"   ← checks may use $BASE; non-empty output = needs the user's explicit approval
-node "${CLAUDE_PLUGIN_ROOT}/scripts/surface-gate.mjs" --base $BASE
-node "${CLAUDE_PLUGIN_ROOT}/scripts/coverage-gate.mjs" --prd <worksDir>/<slug>/prd.md --tc <worksDir>/<slug>/tc.md --plan <worksDir>/<slug>/<slug>-plan.md
-```
-
----
-
-## Step 4 — E2E spec generation and validation
-
-### ⛔ With `-no-e2e` — do not run this step
-
-Do **not** invoke `dev-pipeline:e2e-test`. Instead:
-
-1. Record the stage in the state file:
-   ```json
-   { "name": "e2e-test", "status": "skipped", "skipReason": "-no-e2e option", "artifact": null, "confirmedAt": "<now>" }
+1. **No E2E TCs → finish.** Count the TCs whose `E2E suitability` is `e2e` (row labels follow config `locale`):
+   ```bash
+   grep -cE '^\| \*\*E2E suitability\*\* \| `?e2e' <worksDir>/<slug>/tc.md      # locale en
+   grep -cE '^\| \*\*E2E 적합성\*\* \| `?E2E 가능' <worksDir>/<slug>/tc.md        # locale ko
    ```
-2. Leave `next` as `"e2e-test"` — resuming without the option continues from here.
-3. Print the **implementation-complete report** below.
+   Zero → regardless of options, set the stage to `{ "status": "skipped", "skipReason": "no E2E TCs" }`, set `next` to `null`, and give the completion report.
+2. **`-no-e2e` → do not run.** Set the stage to `{ "status": "skipped", "skipReason": "-no-e2e option" }`, leave `next` as `"e2e-test"`, and give the completion report. The command to continue is `/dev-pipeline:auto-dev-pipeline <slug>`.
+   - Calling a run whose `next` is `e2e-test` again means resuming E2E. Remove `-no-e2e` from the state's `options` and go to 3.
 
-Selector refresh (see "Before entering") is **not** done now either. It only matters when specs are generated, and doing it early blurs whether it already happened on resume.
+   The reports of 1 and 2 include surface-gate `vanishedTokens`. Without an E2E run it is the only signal that existing specs broke silently.
+3. **Refresh the predicted selectors.** The TC node's checkpoint selectors and state paths were predicted from sibling files while no code existed. Run the `dev-pipeline:ui-selector-extractor` agent on the implementation files that now exist and correct, in place, the checkpoint tables of the `e2e` TCs and the selectors and conditions (e.g. focus markers) in their `Entry path` sub-sections. If the implementation changed only logic files, run it on the screen file the checkpoint selectors point to (the TC's `Implementation surface`, the page of the start URL). Edit only the rows that change; never bulk-replace across the file. The same selector also appears in manual TCs' notes and changes with them. Record `selectorsRefreshed: true` in the state so it is not done twice.
+4. `Skill: dev-pipeline:e2e-test <worksDir>/<slug>/tc.md --pipeline <slug>` (batch mode).
+5. At G4, have the user open the result report (`e2e-report.html`) with `node <e2e.kitDir>/report/open.mjs` to see its "needs review" items. That is a viewer for the human; the router takes the conclusion and the items from `<worksDir>/<slug>/e2e-report.md` into the gate question. A `NO_CANDIDATE` SKIP caused by a wrong predicted selector → correct the TC's checkpoint table with the real value. If G4 decisions changed the TC or a spec, run the B-Step 6 command block from `../e2e-test/references/batch-mode.md` again to rebuild `e2e-report.md` before finishing, and first remove the approved needs-review markers (`[verify` / `ko`: `[확인 필요`) from the TC and spec descriptions.
 
-```
-✅ Implementation complete — <feature name>   (E2E stage skipped: -no-e2e)
-
-  work dir      <worksDir>/<slug>/
-    requirements   prd.md
-    test cases     tc.md
-    plan           <slug>-plan.md
-  RED evidence  .superpowers/sdd/<slug>-plan/red-evidence.jsonl
-
-  unit tests N passing · commits N
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-E2E stage remains — N screen-level TCs
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-To continue, either:
-  /dev-pipeline:auto-dev-pipeline <feature>        ← resume without the option, from Step 4
-  /dev-pipeline:e2e-test <worksDir>/<slug>/tc.md   ← run the E2E stage alone
-
-Checkpoint targets from new-implementation mode are still predictions.
-They are refreshed with real values in the E2E stage.
-```
-
-If there are **zero** screen-level TCs, replace the trailing block with one line: "No screen-level TCs — nothing for the E2E stage to generate."
-
----
-
-### Without the option (default)
-
-`Skill: dev-pipeline:e2e-test` with the **same TC file** (batch mode).
-
-### Before entering — avoid a duplicate selector refresh
-
-If `tdd-implement` step I-8 already refreshed the predicted selectors, **do not do it again**. Check the state file's `stages[tdd-implement]` record. If it was not refreshed, present `tdd-implement` I-8's choices here.
-
-> Checkpoint targets and state paths that were "predictions" in new-implementation mode are now **verifiable**. The two branches meet here.
-
-Then **Gate G4**.
-
-### Gate G4 — Spec review and completion
-
-- Metrics: `specs generated N · runtime PASS N / SKIP N / FAIL N · skipped N`
-- Checklist:
-  - a PASSing spec verifies what was intended (report screenshots, AI verdict rationale)
-  - a SKIP with `NO_CANDIDATE` may mean a predicted target was wrong — update the TC checkpoint table with the real value
-- Options: `Done` / `Re-run this stage` / `Stop here` (last stage — no `Continue in a new session`)
-
-On `Done`: mark every stage `done` and report:
+## Completion report
 
 ```
-✅ Development pipeline complete — <feature name>
-
-  work dir      <worksDir>/<slug>/
-    requirements   prd.md
-    test cases     tc.md
-    plan           <slug>-plan.md
-  RED evidence  .superpowers/sdd/<slug>-plan/red-evidence.jsonl
-  E2E specs     <e2e.specsDir>/<slug>/
-
-  unit tests N passing · E2E specs N PASS
+✅ <feature> — <worksDir>/<slug>/
+   prd.md · tc.md · <slug>-plan.md · red-evidence.jsonl · e2e-report.md
+   unit tests N passing · E2E specs N PASS
 ```
 
----
+With E2E skipped by `-no-e2e`, replace the last line with:
 
-## Related files
+```
+   unit tests N passing · E2E skipped (-no-e2e) — N E2E TCs remain
+   continue: /dev-pipeline:auto-dev-pipeline <slug>   or   /dev-pipeline:e2e-test <worksDir>/<slug>/tc.md
+   surface-gate vanishedTokens: <list or none>
+```
 
-- `../auto-e2e-pipeline/references/shared-contract.md` — **single source** for gates, slug, state file
-- `dev-pipeline:prd-extract` · `dev-pipeline:tc-extract` · `dev-pipeline:tdd-implement` · `dev-pipeline:e2e-test` — orchestrated skills
-- `${CLAUDE_PLUGIN_ROOT}/scripts/red-gate.mjs` — RED/GREEN verification and evidence ledger
+## Related
+
+- `../auto-e2e-pipeline/references/shared-contract.md` — single source for routing, gates, slug, state file
+- `dev-pipeline:prd-extract` · `dev-pipeline:tc-extract` · `dev-pipeline:tdd-implement` · `dev-pipeline:e2e-test` — nodes
+- `${CLAUDE_PLUGIN_ROOT}/scripts/red-gate.mjs` — RED/GREEN gate; ledger `<worksDir>/<slug>/red-evidence.jsonl`

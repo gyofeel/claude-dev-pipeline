@@ -3,266 +3,133 @@ name: tc-extract
 description: Use when a PRD (or a feature description) needs to become concrete, verifiable test cases before writing specs or implementation — including when the code does not exist yet. Triggers on "extract test cases", "TC from this PRD", "what should we verify", "test case list", or when /dev-pipeline:prd-extract has just saved a PRD.
 ---
 
-# TC extract
+# TC extraction
 
-Turns a PRD into a TC file that two downstream skills share: `/dev-pipeline:e2e-test` (batch spec generation) and `/dev-pipeline:tdd-implement` (unit targets). Selectors and state paths are **read from code, never guessed**; each TC is classified by verification layer (unit / e2e / manual).
+Reads the PRD, checks the code, and writes `<worksDir>/<slug>/tc.md`.
+- **Format**: [references/tc-format.md](references/tc-format.md), exactly. The e2e-test batch parser, `tdd-implement` and `coverage-gate` read it.
+- **Slug**: the PRD's parent directory name. Do not ask for a save path.
 
-Output format: [references/tc-format.md](references/tc-format.md) — section names and metadata fields there are parse keys. Keep them exact.
+Selectors and state paths are read from code, never guessed. Each TC is classified by verification layer (unit / E2E / manual), and each TC without a unit test gets an implementation owner.
 
 ## Usage
 
 ```
-/dev-pipeline:tc-extract <prd path>
-/dev-pipeline:tc-extract              # asks for the PRD path
+/dev-pipeline:tc-extract <prd path> [--mode new|diff] [--pipeline <slug>]
 ```
 
-The orchestrators pass the PRD path and a `slug`; when called that way, the slug they pass wins over anything derived here.
+- `--mode new` — the feature has no code yet.
+- `--mode diff` — verify changed existing code.
+- No mode → `new` when `git diff` is empty and none of the PRD's related files exist on disk, otherwise `diff`. Ask only when it is unclear.
+- `--pipeline <slug>` — called by a pipeline router (`../auto-e2e-pipeline/references/shared-contract.md`, Node call convention). Skip the final confirmation and the next-step guidance and end with the gate summary (Step 4).
 
-## Step 0 — Load config [automatic]
+No PRD → take the feature scope and the ACs from the conversation and go on.
+
+## Step 0 — Config
 
 ```bash
 node "${CLAUDE_PLUGIN_ROOT}/scripts/config-load.mjs" --check
 ```
 
-Missing or invalid → stop: "Run `/dev-pipeline:init` first." Keep the resolved JSON; every path, command, and capability below comes from it (`worksDir`, `ui.*`, `unitTest.*`, `e2e.*`). Note two capability flags now:
+Missing or invalid → stop: "Run `/dev-pipeline:init` first." Every path, command and capability below comes from the resolved config (`worksDir`, `locale`, `ui.*`, `unitTest.*`, `e2e.*`, `source.*`). Headings and field names follow `${CLAUDE_PLUGIN_ROOT}/kit/artifact-labels.mjs` for `locale`. Two capability facts matter now:
+- `ui.stateBridge` is `null` → the `State` checkpoint type is unavailable. Propose no State rows; say so once in the summary.
+- `unitTest.excludedAreas[]` is quoted verbatim when classifying the unit layer.
 
-- `ui.stateBridge` — `null` means the **State** checkpoint type is unavailable in this project. Do not propose State rows; say so once in Step 3.5.
-- `unitTest.excludedAreas[]` — quoted verbatim in Step 4b-2.
+## Step 1 — Code surface
 
-## Flow
+**diff mode**
+- Base branch: `git symbolic-ref refs/remotes/origin/HEAD`; on failure the first of main → master → develop that exists.
+- Changed files: `git diff <base>...HEAD --name-only` + `git diff HEAD --name-only`. Drop style-only files, config files and spec files.
+- Run the `dev-pipeline:ui-selector-extractor` agent on the changed UI and state files to get real selectors, state paths and branch conditions. Pass the absolute file paths, the repo root, the resolved `ui.*` and the PRD scope only; the extraction rules live in the agent (contract: `${CLAUDE_PLUGIN_ROOT}/references/agents-io.md`).
 
+**new mode** — there are no changed files. The question becomes "what will exist, and which existing file sets the convention for each?" The only deterministic source of conventions for code that does not exist yet is the sibling files on disk.
+- **Planned paths**: find the nearest existing sibling in the same directory family as the PRD's files, and the test file next to it (per `unitTest.testNaming`).
+- **Existing interpreters of the input fields**: run `node "${CLAUDE_PLUGIN_ROOT}/scripts/field-consumers.mjs" <field>...` with the payload field names the PRD takes. If `parsers` already split or interpret the same field, do not design a new parser — reuse that code or follow its conversion (code tables and the like). Each interpreter reports the slots it reads as `segments`. For every new branch that takes the field, write the followed interpreter and whether each of its slots is used or dropped in the `## Input field interpretation` table (tc-format). Taking only some slots (the id but not the type code) makes the same input mean different things per path. Siblings alone miss interpreters in other directories.
+- **Sibling branches at the insertion point**: when the feature adds a branch to an existing switch, if-chain or handler map, read every sibling branch there. Write what they all do (entry-path splits, the query they pass, guards) in the `Sibling convention` column. Unless the PRD explicitly covers it, the new branch follows it too. Not following it is raised as a `convention departure` in Step 4.
+- **Shared flags the changed files toggle**: run `node "${CLAUDE_PLUGIN_ROOT}/scripts/flag-effects.mjs" <file>...` on the existing files in `## Implementation surface`. Each result gets a row in `## Flag side effects` (tc-format). If the design keeps the flag true longer or releases it later, put the restore of what other files wrote meanwhile into the design and a unit TC.
+- `field-consumers` / `flag-effects` printing `{ "error": "no-targets" }` is an error, never a pass: `source.roots` matched no source file or a given path does not exist. Fix the config or the paths.
+- **Registration**: check `ui.registrationFiles` (barrels, registries, route tables). A new module missing there fails at runtime.
+- **Mocks needed**: grep the sibling and its test for mock imports and helpers.
+- When the feature attaches to an existing screen, run `dev-pipeline:ui-selector-extractor` on the sibling and the parent page to get the container's real hooks. Skip it for pure-logic features.
+- The result is the `## Implementation surface` table at the end of the file. Existing interpreters to reuse go in the `Sibling convention` column.
+
+**Existing spec overlap** (both modes): run the `dev-pipeline:spec-scanner` agent with `e2e.specsDir` and the feature scope, in the same message as the extractor. Mark full or partial overlaps on the TC as `merge with <spec>` / `extend <spec>`.
+
+## Step 2 — Write the TCs
+
+**Principles**
+- Every AC has a TC.
+- Cover each of: interface response branches (ok, each error code, empty, timeout), the UI scenario's screen states, code branches, regression of adjacent existing behaviour.
+- Merge identical checkpoints.
+- **Checkpoint selectors and state paths are the real values from Step 1.**
+  - In new mode they are predictions from sibling conventions: suffix them `(new)` and put `> Predicted selectors for new implementation — verify after implementing` in `#### Notes`.
+  - A value you could not confirm stays `[verify: …]`.
+- Checkpoint types and condition forms are exactly those in tc-format (`#### Checkpoints`). The spec assembler rejects anything else.
+- Entry paths use the tc-format DSL. **Never a fixed repeat count** — always a state-based loop.
+
+**E2E suitability and basis**
+- `manual` when it needs: a real device only, pixel or visual comparison (colour, font, layout by eye), live third-party data / payment / DRM, animation timing judged by eye, multi-device sessions.
+  - Host messages can often be injected and host requests observed in dev (prd-format, Platform Interface). Such TCs are not device-only; re-judge when the PRD's `Reproducible in E2E` column says otherwise.
+- `e2e` needs a one-line `E2E basis`. Only four bases are valid: focus or navigation result, rendered DOM or layer state, an observed host request, a page transition / reload / session-restore round trip.
+- A basis that is really a branch decision, a computed value or an input/output contract makes the TC a unit target. One spec is one app boot; piling such TCs into E2E makes the suite too slow to run.
+
+**Verification layer (`Unit target`)** — judged independently of E2E suitability; all four combinations are valid and a TC is never split.
+- **Unit**: pure function input/output, state action transitions, server/domain modules and utilities, component render and props branches a shallow mount can observe.
+- **Not unit** (`(none)`): everything in `unitTest.excludedAreas[]` (quote it), routing round trips, session restore, behaviour that needs a real host callback.
+- **Test file path**: next to the module per `unitTest.testNaming`. It must match a `unitTest.testFileGlobs` entry and none of `unitTest.excludedFilePatterns`, or the runner never collects it.
+- With a path, write `#### Unit checkpoints` with hand-computed literal expectations.
+
+**Implementation owners** — new mode only. Every TC whose `Unit target` is `(none)` gets a row in `## Implementation owners`. Verification layer and implementation responsibility differ: e2e-test only writes specs, so a TC with no owner here is implemented by nobody.
+
+```markdown
+## Implementation owners
+
+| TC | Owner | Reason |
+|----|-------|--------|
+| TC-11 | implement | wiring — fetch the remaining count on entry and render it |
+| TC-17 | existing | the shared template already does this — regression check only |
+| TC-24 | split PROJ-999 | entry path not reachable yet |
 ```
-Phase 1  PRD load        : Step 1 → 1.5
-Phase 2  Code analysis   : Step 2 (files) → [2-G surface scan, new-implementation only]
-                           → [Agent A ‖ Agent B] → Step 3.5 (merged confirm)
-Phase 3  TC extraction   : Step 4b → 4b-2 → 4c → 4d → 5
-```
 
-Every confirmation is an `AskUserQuestion` — never a text table followed by "please answer". After each analysis, summarise what was understood and get confirmation before moving on. Gate text rules: no unreplaced `[...]`, no truncated lines, labels in plain language (code goes in descriptions).
+To propose `existing` for a TC with `(new)` surface, cite the file that already does it in the reason.
 
----
+## Step 3 — Save and check
 
-## Phase 1 — PRD load
-
-### Step 1 — Read the PRD [automatic]
-
-Read the path from `$ARGUMENTS`. Missing file → ask for the correct path. Non-standard format → read what is parseable and flag it in Step 1.5.
-
-### Step 1.5 — Confirm understanding → `AskUserQuestion`
-
-Description summary:
-
-```
-📄 PRD as understood:
-- Feature: …            - Scope: <screen > component>
-- Requirements: 1. … 2. …
-- Acceptance criteria: AC-01 … / AC-02 …
-- Server interface: yes (N endpoints) / none / passed
-- Platform interface: yes (N events) / none / passed     ← only when platformInterface.enabled
-- UI scenarios: yes (N states) / none / passed
-- Design guide: yes / none / passed
-- Exceptions: …
-```
-
-- header: `PRD check`
-- options: `Correct — analyse the code` / `Use a different PRD file` (text) / `Continue without a PRD` (use conversation context; if thin, collect scope + AC as text, then go to Step 2)
-
----
-
-## Phase 2 — Code analysis
-
-### Step 2 — Detect changed files → automatic, then `AskUserQuestion`
-
-Run in order:
+Save to `<worksDir>/<slug>/tc.md` (`mkdir -p` first), then:
 
 ```bash
-# ① base branch
-git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@'
-# fallback: first existing of main, master, develop
-# ② changed files
-git diff <base>...HEAD --name-only
-git diff HEAD --name-only          # staged + unstaged
+node "${CLAUDE_PLUGIN_ROOT}/scripts/coverage-gate.mjs" --prd <worksDir>/<slug>/prd.md --tc <worksDir>/<slug>/tc.md --lint
 ```
 
-③ Filter out (list them separately, do not analyse): style-only files, comment/typo-only diffs, config files, test/spec files.
+- Read `ok` first. `ok: false` → the run failed (`no-ac`, `no-tc`, `no-related-ac` — usually a format or locale mismatch). Quiet output is not success.
+- **`uncovered`** (ACs with no TC): add a TC. If the AC is out of scope, propose it in `## AC exclusions` (`| AC-NN | reason |`) and list it as a pending decision.
+- **`lint.errors`**: fix and re-run until empty. `no-targets` means `source.roots` matched no source file or a listed file does not exist; fix the config or the paths, never read it as a pass.
 
-**Question**: "Confirm the files to analyse."
-- header: `Analysis scope`
-- description: base branch + filtered list + excluded list
-- options:
-  - `Use the detected files`
-  - `Specify files` — paths as text
-  - `Include the filtered files too`
-  - `No files — PRD only` — skip code analysis, go straight to Phase 3
-  - `New implementation — no code yet` — skip diff analysis, run **Step 2-G**
+## Step 4 — Confirm
 
-> Mark `New implementation — no code yet` as `(Recommended)` when the diff is empty **and** none of the PRD's related-file paths exist on disk. Still run ①②③ — their emptiness is the evidence for that recommendation.
+Show:
+- summary table: `| TC | Name | Type | Priority | E2E suitability | Unit (UCP count) | Owner | Overlap |`
+- pending decisions:
+  - the unit / E2E / manual classification — a focus-, render- or host-dependent TC carrying UCPs is caught here
+  - proposed implementation owners
+  - proposals to depart from sibling convention, marked `convention departure`, with the sibling code location and the PRD item that supports it, if any. Only `stated` PRD items count as support
+  - proposed AC exclusions
+  - `[verify: …]` items — except those sibling convention answers. When an `inferred` branch in the PRD's `## Open Questions` is handled the same way by the sibling branches, design it by convention and leave one line: `settled by convention: <item> — <sibling location>`. The human can reverse it at G2
+  - overlapping specs
+- the `coverage-gate` result (`lint.errors` when not empty, or `error` when `ok` is false)
 
-After `Use the detected files` / `Specify files` / `Include…`: spawn **Agent A and Agent B in one message** (parallel), then go to Step 3.5. After `No files — PRD only`: skip to Phase 3. After `New implementation`: do Step 2-G, then Step 3.5.
+With `--pipeline`, print this as the gate summary and stop; G2 is the router's. Standalone, confirm with one `AskUserQuestion`: `Confirm all` / `Enter corrections` / `Show a TC in full`. On confirmation, point to the next step:
+- new mode → `/dev-pipeline:tdd-implement <worksDir>/<slug>/tc.md`, even with zero unit TCs: that only means all of the implementation is on the screen side
+- diff mode → `/dev-pipeline:e2e-test <worksDir>/<slug>/tc.md`
 
-### Step 2-G — Surface scan (new implementation only)
+**Priority**
+- High: core flow, maps an AC directly, failure blocks the feature
+- Medium: secondary behaviour, error handling
+- Low: regression, boundary, fine tuning
 
-There are no changed files. The question becomes *"which files will exist, and which existing file sets the convention for each?"* The only deterministic source of living conventions is a **sibling file on disk** — find the nearest one instead of guessing. Collect this yourself with Read/Glob (payload is small):
-
-| Item | How |
-|---|---|
-| Planned paths | PRD related files + server interface section + user confirmation |
-| Nearest sibling | Glob the same directory family; pick the closest existing peer |
-| Sibling test | the sibling's colocated test per `unitTest.testNaming` (the template the implementer copies) |
-| Registration | only if the project has an explicit registration point (barrel/index, module registry, route table). Check `ui.pagesDir`/`ui.stateStoreDir` for an `index.*`; if unsure, ask once |
-| Mocks needed | grep the sibling and its test for mock imports/helpers |
-| Test path | colocated per `unitTest.testNaming`; must match a `unitTest.testFileGlobs` entry and none of `excludedFilePatterns` |
-
-Agent calls in this mode:
-
-- **Agent A** — only when the new feature attaches to an **existing screen**. Targets: the sibling file + the parent page, so the container's real hooks/state paths can fill CP rows. Pure-logic features (new util/store/server module): skip A.
-- **Agent B** — always. Overlap detection matters *more* for new features (someone may already cover that screen).
-
-The result becomes the `[implementation surface]` block in Step 3.5 and the `## Implementation surface` section at the end of the TC file.
-
-### Agent A — `dev-pipeline:ui-selector-extractor` [spawned right after Step 2]
-
-Prompt: repo root (absolute), resolved config `ui.*`, absolute file list, `scopeHint` = feature scope + target component from Step 1.5. Contract: `references/agents-io.md`. Extraction rules and return format live in the agent — do not repeat them.
-
-### Agent B — `dev-pipeline:spec-scanner` [spawned in the same message]
-
-Prompt: repo root, resolved `e2e.specsDir`, `scope` = feature name + screen + keywords from Step 1.5.
-
-### Step 3.5 — Merged analysis confirmation → `AskUserQuestion`
-
-```
-🔍 Code analysis (A) + existing-spec overlap (B):
-
-[changed components]      - <file>: <summary>
-[DOM hook candidates]     - `<target>` — <condition>
-[state path candidates]   - `<store>.<field>` — <type>      (omitted: stateBridge not configured)
-[branch conditions]       - `<expr>` in <file>:<line>
-[implementation surface]  (new implementation only)
-[existing-spec overlap]   - full: … / partial: … / none
-[uncertain]               - …
-```
-
-- header: `Analysis check`
-- options: `Correct — generate TCs` / `Fix selectors or paths` (text) / `Add context` (business rules, backend conditions) / `Analyse more files` (text → re-run Agent A)
-
----
-
-## Phase 3 — TC extraction
-
-### Step 4b — E2E suitability [automatic]
-
-`e2e` when the outcome is observable through DOM, focus, state (if bridged), or runtime signals; the environment is reproducible with fixtures; results are deterministic.
-
-`manual` when it needs: a real device only, pixel/visual comparison (colour, font, layout by eye), live third-party data / payment / DRM, animation timing or easing, or multi-device sessions.
-
-Result → metadata row **E2E suitability**; `manual` TCs also go to `## Manual review items`.
-
-### Step 4b-2 — Unit layer (`Unit target`) [independent judgement]
-
-Orthogonal to 4b; all four combinations are valid and **a TC is never split**.
-
-Unit-able → `Unit target` = a test file path: pure functions (transform, compute, parse, decide), state actions/getters, server/domain modules and utilities, component render/props branches that a shallow mount can observe.
-
-Not unit-able → `(none)`: everything in `unitTest.excludedAreas[]` (quote it verbatim), routing round-trips and session restore, and behaviour that needs a real platform callback.
-
-Path rule: colocate with the module per `unitTest.testNaming`; the path must fall under `unitTest.testFileGlobs` and avoid `excludedFilePatterns`, otherwise the runner never collects it.
-
-> This is the highest-impact judgement in the pipeline and it cannot be automated: with no code yet there is nothing for a script to read, and a keyword heuristic becomes a gate that gets gamed. The user confirms it in Step 4d.
-
-### Step 4c — Draft TCs
-
-From PRD + Phase 2 results + 4b/4b-2, generate TCs by these principles:
-
-1. **AC 1:1** — one TC per AC minimum; no ACs → derive from requirements
-2. **Interface coverage** — one TC per response branch (ok, each error code, empty, timeout)
-3. **UI flow coverage** — one per screen state in the PRD
-4. **Code branch coverage** — guards / computed flags from Agent A
-5. **Regression** — adjacent existing behaviour of changed components
-6. **Dedupe** — merge identical checkpoints; apply Agent B overlap notes (`regression — merge with <spec>` / `extend or merge`)
-7. **Suitability** — 4b result
-8. **Unit layer** — 4b-2 result; when a path is set, write `#### Unit checkpoints` with hand-computed literal expectations and `Target` = `<import specifier>#<export>` from the surface scan
-9. **New-implementation markers** — `## Implementation surface` at the end; each TC's `#### Notes` gets `> Predicted selectors for new implementation — verify after implementing`; predicted values carry `(new)`
-
-Checkpoint rows use values Agent A actually read. When analysis was skipped (`No files`), infer from the PRD (design-guide hooks, API fields) and existing specs under `e2e.specsDir`, and mark anything unconfirmed `[verify: selector not found]` / `[verify: state path not found]` for Step 4d.
-
-Entry paths use the DSL from tc-format.md (`goto`, `waitForAppReady`, `click`, `fill`, `press`, `waitFor`, `loop … × max N: <expr> → break`, `findAndEnter`). **Never a fixed repeat count** — always a state-based loop.
-
-### Step 4d — Summary → detail loop → `AskUserQuestion`
-
-Print the summary table, then ask:
-
-```
-📋 TC draft (N)
-
-| TC ID | Name | Type | Priority | CP | E2E | Unit | Overlap |
-|-------|------|------|----------|----|-----|------|---------|
-| TC-01 | … | happy path | High | 8 | e2e | UCP 3 | — |
-| TC-03 | … | ui | Low | 3 | manual | UCP 2 | — |
-| TC-04 | … | regression | Low | 5 | e2e | — | ⚠️ partial: <spec> |
-
-Manual review: TC-03 (unit-verified)
-Unit targets: TC-01, TC-03 → /dev-pipeline:tdd-implement unit tasks
-E2E/manual TCs: TC-02, TC-04 → implementation owner decided at /dev-pipeline:tdd-implement I-3b (new-implementation mode)
-AC coverage: N PRD ACs, ACs without a TC — AC-NN, … ("none" if none)
-```
-
-> **An AC without a TC blocks `Confirm all`.** For each such AC ask `Add TC` or `Exclude (reason)`; exclusions are written to the TC file as the `## AC exclusions` table (`| AC-NN | reason |`). Right after saving, Step 5 runs `coverage-gate` to redo this check deterministically.
-
-> The `Unit` column is where the user catches a wrong 4b-2 call — a focus/render/platform-dependent TC showing `UCP N` should be flipped here.
-
-- header: `TC review`
-- options: `Show a TC in full` (id as text → print all sub-sections → back to this question) / `Confirm all — write the file` / `Add, edit, or drop TCs` (text → apply → re-show) / `Start over`
-
-### Step 5 — Save → `AskUserQuestion`
-
-File name is fixed (`tc.md`); the thing confirmed is the **work directory (slug)**.
-
-Slug precedence: 1) slug passed by the caller; 2) if the PRD path is `<worksDir>/<slug>/prd.md`, inherit that parent directory; 3) kebab-case of the feature name. Saving elsewhere breaks the pipeline — later stages read the slug from the parent directory.
-
-**Question**: "Save the TC file. Confirm the path."
-- header: `Save TC`
-- description: `<worksDir>/<slug>/tc.md` · TC-01…TC-NN (N) · manual N
-- options: `Save here` / `Change slug` (text; directory under `worksDir`) / `Back to the TC review`
-
-`mkdir -p <worksDir>/<slug>` then write. Priority/type definitions: tc-format.md.
-
-**AC check right after saving [automatic]** — when a PRD exists:
-
-```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/coverage-gate.mjs" --prd <PRD path> --tc <worksDir>/<slug>/tc.md
-```
-
-Non-empty `uncovered` → back to Step 4d for those ACs. `ok:false` (nothing parsed) means the AC / `Related AC` notation is broken — do not read silence as success. When gates counted only output volume (N TCs, N UCPs), a whole AC could vanish unnoticed (observed downstream).
-
----
-
-## Handoff message
-
-**Existing code:**
-
-```
-✅ TCs extracted: <worksDir>/<slug>/tc.md   (N TCs)
-
-Next — generate E2E specs in batch
-/dev-pipeline:e2e-test <worksDir>/<slug>/tc.md
-→ one spec per e2e TC in <e2e.specsDir>/<slug>/, no interview
-```
-
-**New implementation** (`> **Implementation mode**: new`):
-
-```
-✅ TCs extracted (new implementation): <worksDir>/<slug>/tc.md
-   unit N · e2e M · manual K
-
-Next — TDD implementation
-/dev-pipeline:tdd-implement <worksDir>/<slug>/tc.md
-→ implements the N unit-target TCs test-first, then hands off to e2e-test
-```
-
-If unit targets = 0: "No unit-target TCs — normal for this repository's testable boundary. Go straight to `/dev-pipeline:e2e-test`."
+**Type**: `happy path` / `error handling` / `ui` / `boundary` / `regression`
 
 ## Related
 
-- `/dev-pipeline:prd-extract` — produces the input PRD ([prd-format.md](../prd-extract/references/prd-format.md))
-- `/dev-pipeline:e2e-test`, `/dev-pipeline:tdd-implement` — consumers
+- `dev-pipeline:prd-extract` — produces the input PRD ([prd-format.md](../prd-extract/references/prd-format.md))
+- `dev-pipeline:tdd-implement`, `dev-pipeline:e2e-test` — consumers
 - `${CLAUDE_PLUGIN_ROOT}/references/agents-io.md` — agent contracts

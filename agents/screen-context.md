@@ -46,7 +46,7 @@ Read `pageFile`. In `ui.selectorPriority` order, pick:
 2. the main content container (list, grid, panel)
 3. one guarded block with its guard quoted as written → `condition: <expr>`
 
-Descriptor forms: `testid:value`, `#id`, `.class`, `text:Label`. Exclude transient state classes (`--focused`, `--active`). Class with several tokens → the most specific single token. Nothing extractable → empty list and a note.
+Candidates are plain CSS — `[<ui.testIdAttribute>="value"]`, `#id`, `.class` — because they become the spec's `renderSelector`, which the render wait resolves as CSS (`testid:` / `text:` descriptors are for checkpoints, not here). The wait takes the first match, so prefer a selector that matches one element. Exclude transient state classes (`--focused`, `--active`). Class with several tokens → the most specific single token. Nothing extractable → empty list and a note.
 
 ## Step 4 — Confidence
 

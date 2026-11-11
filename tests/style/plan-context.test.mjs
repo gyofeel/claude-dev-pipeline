@@ -43,7 +43,7 @@ emails: [kim@corp.example, kim@mail.example]
 - Always braces.
 `;
 
-// tdd-implement task-checkbox-contract shape: bare paths, implementation code in fences
+// tdd-implement task-checkbox-contract shape: bare paths, test code in fences
 const PLAN = `# Feature Implementation Plan
 
 **Goal:** something

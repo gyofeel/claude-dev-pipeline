@@ -15,8 +15,8 @@ Common prompt preamble supplied by the caller: repo root (absolute), the resolve
 | `navigation-advisor` | scenario sentence → validated navigation plan | Read, Glob, Grep, Bash, Agent(Explore) |
 | `verification-advisor` | screen + selected types → checkpoint candidates | Read, Glob, Grep, Bash, Agent(Explore) |
 | `spec-writer` | assembler input → saved, linted, formatted spec | Read, Write, Bash |
-| `spec-reviewer` | spec path → merged verdict from `spec-lint` + state probe + residual rules | Read, Bash |
-| `spec-runtime-validator` | spec path → PASS / SKIP / FAIL / ENV with diagnostics | Read, Bash |
+| `spec-reviewer` | spec paths → merged verdict per spec from `spec-lint` + state probe + residual rules | Read, Bash |
+| `spec-runtime-validator` | spec path → PASS / SKIP / FAIL / ENV with failure kind and diagnostics | Read, Bash |
 
 ## ui-selector-extractor
 
@@ -57,8 +57,8 @@ Common prompt preamble supplied by the caller: repo root (absolute), the resolve
 
 ## fixture-advisor
 
-**Input**: `screen`, optional `endpoints[]` from the PRD server-interface section, config `e2e.fixturesDir`, `e2e.specsDir`.
-**Procedure**: list fixture files; read `manifest.json` if present (url→file map); grep existing specs for `mockAll(` route maps to learn url→fixture usage; match endpoints/screen keywords; open each recommended file and classify `real` (populated data) vs `skeleton` (empty arrays / placeholder values).
+**Input**: `screen`, optional `endpoints[]` from the PRD server-interface section, config `e2e.fixturesDir`, `e2e.specsDir`, `e2e.bootFixtures`.
+**Procedure**: list fixture files; read `manifest.json` if present (url→file map); grep existing specs for `mockAll(` route maps to learn url→fixture usage; list the `e2e.bootFixtures` globs first (they decide whether the spec runs isolated); match endpoints/screen keywords; open each recommended file and classify `real` (populated data) vs `skeleton` (empty arrays / placeholder values). Globs end with `*` when the request carries a query string; a glob that matches nothing fails the spec file as `mock-unused`.
 **Output**:
 ```
 [available fixtures]
@@ -77,7 +77,7 @@ Common prompt preamble supplied by the caller: repo root (absolute), the resolve
 ## screen-context
 
 **Input**: `screenName`, config `ui.pagesDir`, `ui.routeRule`, `e2e.screenCatalog`.
-**Procedure**: if a catalog exists, match by name first. Otherwise list page files under `pagesDir` (`find … -name '*.vue' -o -name '*.jsx' -o -name '*.tsx' -o -name '*.svelte' -o -name 'page.*'`), score by keyword, apply `routeRule` to derive the URL, read the best file, extract up to 3 render-selector candidates (root wrapper first, then main content container, then a conditional block with its guard).
+**Procedure**: if a catalog exists, match by name first. Otherwise list page files under `pagesDir` (`find … -name '*.vue' -o -name '*.jsx' -o -name '*.tsx' -o -name '*.svelte' -o -name 'page.*'`), score by keyword, apply `routeRule` to derive the URL, read the best file, extract up to 3 render-selector candidates as plain CSS — they become `renderSelector`, which the render wait resolves as CSS (root wrapper first, then main content container, then a conditional block with its guard).
 **Output**:
 ```
 [screen-context]
@@ -106,14 +106,14 @@ Common prompt preamble supplied by the caller: repo root (absolute), the resolve
 ## verification-advisor
 
 **Input**: `screen`, `pageFile`, `selectedTypes[]` ⊆ {DOM, Focus, State}, optional `entrySummary`, config `ui.*`.
-**Procedure**: read `pageFile` and one level of imported local files; DOM: up to 6 hooks (root wrapper, guarded blocks with their guard, main containers), never state-modifier classes; Focus: elements that receive focus after the entry (autofocus, focus() calls, tab order) or app focus ids when `adapter.focusExpr` is configured; State (only with a bridge): fields read by the files, from the store modules under `ui.stateStoreDir`; if fewer than 2 DOM candidates, dispatch `Explore` over `ui.componentsDir`. Flag candidates that are structurally rare for the chosen scenario (warning, not exclusion).
+**Procedure**: read `pageFile` and one level of imported local files; DOM: up to 6 hooks (root wrapper, guarded blocks with their guard, main containers), never state-modifier classes; Focus: elements that receive focus after the entry (autofocus, focus() calls, tab order) or app focus ids when `ui.stateBridge.focusExpr` is configured — conditions `includes('…')` or a matcher call, never `matches('<css>')`; State (only with a bridge): fields read by the files, from the store modules under `ui.stateStoreDir`; if fewer than 2 DOM candidates, dispatch `Explore` over `ui.componentsDir`. Conditions use tc-format's Checkpoints forms. Flag candidates that are structurally rare for the chosen scenario (warning, not exclusion); mark candidates touching `e2e.softTrack.patterns` with `soft: true`.
 **Output**:
 ```
 [verification-advisor]
 - DOM:
   - { target: "<descriptor>", condition: "visible", reason: "<file>:<line> …" }
 - Focus:
-  - { target: "<descriptor or focus id>", condition: "matches('…')", reason: "…" }
+  - { target: "focus", condition: "includes('…')", reason: "…" }
 - State:                                    ← omit when stateBridge is null
   - { path: "<store>.<field>", condition: "truthy", reason: "<file>:<line>" }
 - existingPattern: <spec path>
@@ -122,8 +122,15 @@ Common prompt preamble supplied by the caller: repo root (absolute), the resolve
 
 ## spec-writer
 
-**Input**: assembler input JSON (see `scripts/spec-template.mjs --help`): `tcName, outputPath, screen, startUrl, timeout, renderSelector, readyExpr, fixtures{}, verifications[], successCriteria, acceptanceCriteria?, notes?, consoleErrorWhitelist[], acceptableStatuses[], navigationPlan?, liveData?` plus `previousContext` on retries. On a plan fallback (`skip`) the body calls the kit's `captureNavigationCensus(page, testInfo, { target, candidateCount, enteredLog })` before `test.skip`.
-**Procedure**: write the input to a temp JSON; run `node "${CLAUDE_PLUGIN_ROOT}/scripts/spec-template.mjs" <input.json>` → skeleton with `// <<< TEST_BODY >>>`; replace the marker with the body: navigation plan compiled per `references/navigation-plan.md` (pointer: locator actions; keyboard: `adapter.findAndEnter`/`adapter.press`), soft-track wrappers for `e2e.softTrack.patterns`; Write the file; run `node "${CLAUDE_PLUGIN_ROOT}/scripts/spec-lint.mjs" <path>` and fix until `pass: true`; run `commands.format <path>` and, best-effort, `commands.lint <path>`.
+**Input**: one assembler input JSON — the contract is `INPUT_SCHEMA` in `scripts/spec-template.mjs` (`--help` prints it):
+- required: `tcName` (or `cases[]`), `outputPath` (repo-relative, `<e2e.specFilePrefix>….spec.js`), `screen`
+- entry: `startUrl` (default `/`), `timeout` (≥ 60000, default 120000), `renderSelector` (CSS) / `readyExpr`, `fixtures` (`{ '<url glob>': '<file in e2e.fixturesDir>' | <inline object> }`), `navigationPlan`, `navigationStrategy` (`'A'` default; `'C2'` for live-data goal-directed navigation)
+- checks: `verifications[]` — `{ type, selector? (alias target), path?, condition?, desc?, soft?, before?, window? }`, `type` one of `DOM` · `Focus` · `State` · `Runtime` · `URL` · `Popup` · `Observe` (or the locale's `tc.cp.*` label); `successCriteriaText` (alias `successCriteria`); `consoleErrorWhitelist[]`; `networkErrorWhitelist[]`; `notes`
+- body: `slotBody` (interaction code; `''` = none), `setupBody` (before the `[before]` checkpoints)
+- `cases[]`: `[{ tcName, verifications, successCriteriaText?, slotBody?, setupBody?, screen? }]` — TCs sharing one entry, one `describe` each
+- no `isolate`: the assembler isolates exactly when a `fixtures` glob is listed in `e2e.bootFixtures`
+- plus `previousContext` on retries
+**Procedure**: write the input to `<scratch>/dp-spec/<spec file name>/input.json`; compile the navigation plan per `references/navigation-plan.md` into `slotBody` (pointer: locator actions; keyboard: `adapter.findAndEnter`/`adapter.press`); run `node "${CLAUDE_PLUGIN_ROOT}/scripts/spec-template.mjs" <input.json> --write`; run `node "${CLAUDE_PLUGIN_ROOT}/scripts/spec-lint.mjs" <path>` and fix the input until `pass: true`; run `commands.format <path>` and, best-effort, `commands.lint <path>`. The assembled file is never edited outside the `// <<< TEST_BODY >>>` slot; the kit import line always carries `captureFailureDiagnostics` and `captureNavigationCensus`. On a plan fallback (`skip`) the body calls `captureNavigationCensus(page, testInfo, { target, candidateCount, enteredLog })` before `test.skip` (`test.info()` when the test has no `testInfo` argument).
 **Output**:
 ```
 [spec-writer]
@@ -135,11 +142,11 @@ Common prompt preamble supplied by the caller: repo root (absolute), the resolve
 
 ## spec-reviewer
 
-**Input**: `specPath`, `verifications[]` (for the step-isolation rule), `probe` (`true` when the app is reachable; default true).
-**Procedure**: 1) `node "${CLAUDE_PLUGIN_ROOT}/scripts/spec-lint.mjs" <specPath>` — trust `violations[]` as-is; 2) if the spec contains State paths and `probe`, run `node "${CLAUDE_PLUGIN_ROOT}/scripts/state-probe.mjs" <specPath>` → `{ ok, checked: [{ path, status, sample }], errors[] }` (exit 2 + `env: true` = app unreachable → report `probe: skipped`, not a failure) — each path must resolve to a non-`undefined` value on the running app; 3) judge residual rules from `llmResidual[]` only (step isolation when ≥2 verifications; soft-track applied where `softTrack.patterns` appear; no fixed sleeps after interactions; plan compiled faithfully).
-**Output**:
+**Input**: `specs[]` — `{ specPath, verifications[], navigationPlan }` per spec (batch mode sends the whole batch in one call), `probe` (`true` when the app is reachable; default true).
+**Procedure**, per spec: 1) `node "${CLAUDE_PLUGIN_ROOT}/scripts/spec-lint.mjs" <specPath>` — trust `violations[]` as-is (kit-fixture specs skip rules 1, 2, 5–7, 12, 13, 15; rules 21 and 22 apply to them); 2) if the spec contains State paths and `probe`, run `node "${CLAUDE_PLUGIN_ROOT}/scripts/state-probe.mjs" <specPath>` → `{ ok, checked: [{ path, status, sample }], errors[] }` (exit 2 + `env: true` = app unreachable → report `probe: skipped`, not a failure) — each path must resolve to a non-`undefined` value on the running app; 3) judge residual rules from `llmResidual[]` only (16: no fixed sleeps after interactions; 17: soft `cp` exactly where `softTrack.patterns` appear) plus plan fidelity.
+**Output**: specs with `pass: false` listed first, then one block per spec:
 ```
-[spec-reviewer]
+[spec-reviewer] <specPath>
 pass: true | false
 
 [violations]
@@ -158,11 +165,12 @@ Critical/Error → `pass: false`. Warnings alone → `pass: true`.
 ## spec-runtime-validator
 
 **Input**: `specPath`, `iteration`, `previousContext`.
-**Procedure**: 0) health: `GET <e2e.baseUrl><e2e.healthUrlPath>` (non-200 = warning, not blocking — Playwright's `webServer` may start it); writable check on `e2e.writableDirs`; 1) `rm -f <resultsJson>`; `E2E_SKIP_AI=1 <commands.e2eRun> <specPath> > <scratch>/pw-stdout.txt 2>&1`; 2) parse `<resultsJson>` with the embedded Node snippet (stats, first failure, `failure-diagnostics` attachments); 3) classify — `ENV` first (any `e2e.envErrorPatterns` hit in errors/stdout, or no results file with non-zero exit), then `PASS` (`unexpected 0 && skipped 0`), `SKIP` (`unexpected 0 && skipped > 0`), `FAIL`. Never modifies the environment: no `sudo`, `chown`, `rm -rf`, installs.
+**Procedure**: 0) writable check on `e2e.writableDirs`; browser binary check; health `GET <e2e.baseUrl><e2e.healthUrlPath>` (non-200 = warning, not blocking — Playwright's `webServer` may start it); 1) `rm -f <resultsJson>`; `E2E_ARCHIVE=0 <commands.e2eRun> <specPath> > <scratch>/pw-stdout.txt 2>&1`; 2) parse `<resultsJson>` with the embedded Node snippet, which runs the kit's report model (`<e2e.kitDir>/report/collect.mjs` `collectRun`) for per-test status and failure kind, plus the `failure-diagnostics` / `navigation-census` attachments; 3) classify — `ENV` first (any `e2e.envErrorPatterns` hit in errors/stdout, or no results file with non-zero exit), then `FAIL` (any test the model marks failed, including `mock-unused`; or no test ran), `SKIP` (none failed, some skipped), `PASS`. The verdict inside each test is the kit's rule-based judge; no AI is called. Never modifies the environment: no `sudo`, `chown`, `rm -rf`, installs.
 **Output** (JSON):
 ```json
 { "status": "PASS|SKIP|FAIL|ENV", "iteration": 1, "passed": 1, "failed": 0, "skipped": 0,
-  "failedStep": null, "errorMessage": null, "skipReason": null, "envReason": null,
-  "skipKind": null, "diagnostics": [] }
+  "failedStep": null, "failureKind": null, "errorMessage": null, "unusedMocks": [],
+  "skipReason": null, "envReason": null, "skipKind": null, "diagnostics": [] }
 ```
+`failureKind` (FAIL only): `assertion` · `setup` · `timeout` · `judge` (rule-based verdict FAIL; the message quotes `Issues:`) · `mock-unused` (a mock in the spec file answered no request — suspect the glob or a service worker first) · `interrupted` · `other`. A test that failed for another reason keeps its kind; `unusedMocks` is filled whenever the file has unused mocks.
 `skipKind`: read from the `navigation-census` attachment's `verdictHint` — `NO_CANDIDATE` (`candidateCount === 0`) or `ENTERED_BUT_REJECTED` (`candidateCount > 0`, rejections listed in `enteredLog[]`); no census → `null`.

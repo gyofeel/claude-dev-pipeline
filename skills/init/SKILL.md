@@ -1,6 +1,6 @@
 ---
 name: init
-description: Use when a project has no `.agents/pipeline.config.json` yet, when another dev-pipeline skill stops with "config missing", or when the user wants to change project facts the pipeline relies on (test command, spec directory, state bridge, interaction mode, AI provider).
+description: Use when a project has no `.agents/pipeline.config.json` yet, when another dev-pipeline skill stops with "config missing", or when the user wants to change project facts the pipeline relies on (test command, spec directory, state bridge, interaction mode, artifact language).
 ---
 
 # init — create or update the pipeline config
@@ -47,6 +47,8 @@ Read `package.json`, lockfiles, and the directory tree. Collect these; note the 
 | `e2e.resultsJson` | from the json reporter in `playwright.config.*` if present; else `e2e/reports/results.json` |
 | `e2e.baseUrl` | `use.baseURL` in `playwright.config.*`; else `http://localhost:3000` |
 | `unitTest.testFileGlobs` | from the runner config `include`/`testMatch` if readable; else the schema default |
+| `source.roots` | every existing top-level directory among `src`, `app`, `lib`, `server`, `shared`, `components`, `pages`, `store`, `stores`, `modules`, `packages` (none → keep the default `["src"]` and flag it: field-consumers and flag-effects, and the coverage-gate checks built on them, report "no targets" when no root exists) |
+| `source.aliases` | not written: read from tsconfig/jsconfig `compilerOptions.paths` at run time. Flag it when the root tsconfig only `extends` a generated file (Nuxt `.nuxt/tsconfig.json`) or no tsconfig/jsconfig exists — the user then sets it by hand (Nuxt: `{ "~/": "app/", "@/": "" }`) |
 
 Do not read the runner config files by executing them; grep for the keys.
 
@@ -76,12 +78,15 @@ Print the detected values as one grouped block (commands / unit tests / ui / e2e
   - `No — DOM and runtime checks only (Recommended)` — the State checkpoint type stays off
   - `Yes — I will enter the expression` — a JS expression like `window.__APP_STATE__` evaluable in the page; the next prompt asks for it
 
-**Question**: "Which AI provider should judge E2E runtime results?"
-- header: `AI verdict`
+**Question**: "Which language should generated artifacts use?"
+- header: `Language`
 - options:
-  - `None (Recommended)` — verdict comes from assertions only
-  - `OpenAI` — uses `OPENAI_API_KEY`
-  - `Anthropic` — uses `ANTHROPIC_API_KEY`
+  - `English (Recommended)` — `locale: "en"`: PRD, TC and plan headings, check labels and the E2E report in English
+  - `Korean` — `locale: "ko"`: the same in Korean
+
+If `unitTest.runner` was not detected, add a fourth question to this round (Round 2 already has four; one call takes at most four): `vitest` / `jest` / `no unit tests` (then `commands.unitTest` becomes null, config-load warns, and tdd-implement is unusable — say so).
+
+The E2E report follows `locale`. Mention once that a different report language goes in `e2e.report.locale` (`"en"` / `"ko"`); do not ask about it. E2E verdicts are rule-based, so there is no AI provider to choose; in update mode, delete a leftover `e2e.ai` key and say so.
 
 **Round 2**
 
@@ -98,6 +103,14 @@ Print the detected values as one grouped block (commands / unit tests / ui / e2e
   - `No (Recommended)`
   - `Yes — I will describe them` — next prompt collects a guard expression and pattern words
 
+**Question**: "Which directories hold the source code that unit-test and impact checks scan?"
+- header: `Source roots`
+- options:
+  - `<detected list, e.g. app, server, shared> (Recommended)` — written as `source.roots`
+  - `Other — I will list them` — next prompt collects repo-relative directory names
+
+With no candidate, the first option is `src (default — no such directory yet)`.
+
 **Question**: "Are there code changes that always need explicit approval during implementation review?"
 - header: `Approval gates`
 - options:
@@ -106,7 +119,6 @@ Print the detected values as one grouped block (commands / unit tests / ui / e2e
 
 For every `Yes — …` answer, ask for the value as plain text in the next turn.
 
-If `unitTest.runner` was not detected, add one question: `vitest` / `jest` / `no unit tests` (then `commands.unitTest` becomes null and tdd-implement is unusable — say so).
 
 ## Step 4 — Write, validate, finish
 
@@ -126,9 +138,9 @@ If `unitTest.runner` was not detected, add one question: `vitest` / `jest` / `no
 
 ```
 Config written: .agents/pipeline.config.json
-  unit: <runner> · <commands.unitTest>
+  unit: <runner> · <commands.unitTest> · source <source.roots>
   ui:   <framework> · pages <dir> · state bridge <yes/no>
-  e2e:  <interaction> · specs <dir> · AI <provider>
+  e2e:  <interaction> · specs <dir> · locale <locale>
 
 Next
   /dev-pipeline:e2e-init            — install the E2E runtime kit (needed before e2e-test)

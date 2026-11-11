@@ -1,5 +1,7 @@
 # PRD file format
 
+Headings, header fields and fixed values follow `<plugin>/kit/artifact-labels.mjs` for the configured `locale`; this page shows the `en` labels.
+
 Shared standard: `tc-extract` parses this format 1:1. Section headers (`##` / `###`) and table columns are parse keys — keep them exact. Optional sections are omitted entirely when empty (never left as a bare header).
 
 ## Header
@@ -94,12 +96,17 @@ Fixture file names are checked against `e2e.fixturesDir` by the `fixture-advisor
 
 | Name | Parameters | App behaviour | Reproducible in E2E |
 |------|------------|---------------|---------------------|
-| <name> | <params> | <behaviour> | yes (page.evaluate mock) / manual only |
+| <name> | <params> | <behaviour> | yes (inject) / yes (observe request) / manual review |
 
 ### Platform differences
 
 <none, or details>
 ```
+
+Decide `Reproducible in E2E` by what the dev environment can do, not by whether the host answers there:
+- host → app messages can be injected from the spec (`page.evaluate` calling the app's receive entry point) → `yes (inject)`
+- app → host requests get no answer in dev, but the request itself can be observed (a stubbed bridge, a log line) → `yes (observe request)` when the request is the thing to check
+- `manual review` only when the check depends on what happens after a host answer that cannot be injected
 
 ## `## UI Scenarios` *(omit if none)*
 
@@ -147,7 +154,7 @@ Steps are written in plain interaction language (click, type, press KEY, wait fo
 |------|--------|
 | <item> | visual comparison / real device / … |
 
-### Publishing source *(only when Step 4-b received paths)*
+### Publishing source *(only when publishing source paths were given)*
 
 | Screen · state | Source file | Notes |
 |----------------|-------------|-------|
@@ -182,13 +189,13 @@ Every `Pass`, unclear, or inferred item ends up here. **Nothing is silently drop
 
 | PRD section | tc-extract use |
 |---|---|
-| `## Acceptance Criteria` | Step 4c — one TC per AC minimum |
+| `## Acceptance Criteria` | one TC per AC minimum (`coverage-gate` checks it) |
 | `## Server Interface` → Fixture mapping | TC metadata `Fixtures` row / `page.route` mocks |
 | `## Server Interface` → Error / Boundary | interface-coverage TCs |
-| `## Platform Interface` → Reproducible in E2E | Step 4b E2E suitability |
+| `## Platform Interface` → Reproducible in E2E | E2E suitability |
 | `## UI Scenarios` → Screen states | UI-flow coverage TCs |
 | `## UI Scenarios` → Interaction sequences | `#### Entry path` |
 | `## Design Guide` → hooks | `#### Checkpoints` DOM targets |
-| `## Open Questions` | Step 3.5 uncertain items / manual review requests |
+| `## Open Questions` | pending decisions at G2 / manual review requests |
 | `## Server Interface` → Spec I/F cross-check · Source | `tdd-implement` — the original to check when code and a spec value disagree |
 | `## Design Guide` → Publishing source | `tdd-implement` wiring-task brief (copy markup) · completion report source deviations |

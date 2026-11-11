@@ -1,15 +1,25 @@
 ---
 name: prd-extract
-description: Use when a feature's requirements are scattered across tickets, Figma, interface specs, or verbal descriptions and need to be consolidated into one PRD before any code or test work starts. Also the first stage of the auto-dev-pipeline and auto-e2e-pipeline. Triggers on "write a PRD", "organize requirements", "extract the spec", or starting feature work without a written spec.
+description: Use when a feature's requirements are scattered across tickets, Figma, interface specs, or verbal descriptions and need to be consolidated into one PRD before any code or test work starts. Also the first stage of the auto-dev-pipeline and auto-e2e-pipeline, and the way to rework a PRD that failed its lint or was sent back at the PRD gate. Triggers on "write a PRD", "organize requirements", "extract the spec", "fix this PRD", or starting feature work without a written spec.
 ---
 
-# PRD Extraction
-
-Collect functional requirements, external interfaces, UI scenarios, and design guidance through a slot-based interview, then emit a **PRD file** whose format `tc-extract` parses 1:1. Format: [references/prd-format.md](references/prd-format.md). Interview prompt texts: [references/interview-prompts.md](references/interview-prompts.md).
+# PRD extraction
 
 ```
-/dev-pipeline:prd-extract [feature name]
+collect material (once) → draft → coverage-gate --prd --lint → ask only blanks and contradictions ⟲ → save
 ```
+
+The artifact is `<worksDir>/<slug>/prd.md`. Its format is [references/prd-format.md](references/prd-format.md) — `tc-extract` and `coverage-gate` parse it, so read it before drafting. The feature name, the target screen and the acceptance criteria must be settled before the save completes.
+
+## Usage
+
+```
+/dev-pipeline:prd-extract [feature name | issue key] [--pipeline [<slug>]]
+/dev-pipeline:prd-extract <existing PRD .md> [--pipeline <slug>]      # revise mode
+```
+
+- `--pipeline` → called by a pipeline router (`../auto-e2e-pipeline/references/shared-contract.md`, Node call convention). Do not ask for a save path, skip the final confirmation and the next-step guidance, and end with the gate summary (Step 5). `--pipeline` alone means a new run: propose the slug. `--pipeline <slug>` with an existing `<worksDir>/<slug>/prd.md` is a G1 re-run: revise mode on that file, with the correction the router passes.
+- An existing `.md` path as the argument → **revise mode** (below).
 
 ## Step 0 — Config and resume
 
@@ -17,235 +27,99 @@ Collect functional requirements, external interfaces, UI scenarios, and design g
 node "${CLAUDE_PLUGIN_ROOT}/scripts/config-load.mjs"
 ```
 
-Missing config → stop: "No `.agents/pipeline.config.json`. Run `/dev-pipeline:init` first." Keep `worksDir`, `platformInterface`, `e2e.fixturesDir`, `ui.selectorPriority`.
+Missing config → stop: "No `.agents/pipeline.config.json`. Run `/dev-pipeline:init` first." Keep `worksDir`, `locale`, `issueKeyPattern`, `platformInterface`, `e2e.fixturesDir`, `e2e.specsDir`, `ui.selectorPriority`.
 
-Then look for `prd-extract-*.wip.json` in the session scratchpad. If one exists → `AskUserQuestion`:
+Headings and fixed values are written with the labels of config `locale` (`${CLAUDE_PLUGIN_ROOT}/kit/artifact-labels.mjs`). A PRD written with the other locale's headings fails the lint as `no-ac`.
 
-**Question**: "An unfinished PRD interview was found. Continue it?"
-- header: `Resume`
-- description: feature name, last completed step, saved time
-- options: `Continue from the last step` / `Start over (discard the draft)`
+If the session scratchpad holds `prd-extract-*.wip.json`, ask once: `Continue` / `Start over`. The WIP holds the collected material, the draft path and the open-question queue. Overwrite it after every question round; delete it once the PRD is saved.
 
-> **Every interview step uses the `AskUserQuestion` tool.** Never print a table and say "fill this in". After each input, summarize what was understood and get confirmation before moving on.
+## Revise mode
 
-## Collection state
+For a PRD that failed `coverage-gate --prd --lint` (the router's external-PRD import stops with a fix list) or was sent back at G1.
 
-The interview fills **one state object**. Do not summarize pasted material as a whole; decompose it into slots and fill each independently. Step 6 renders the PRD deterministically from this object.
+1. Read the file. It is the draft; its content is material marked as stated. Do not rewrite sections nobody asked to change.
+2. Run the lint on it (Step 3 command). Together with the correction the user or the router gave, `lint.errors` is the work list. `lint.warnings` are shown, not forced.
+3. Headings in the other locale → rename them to the config locale's labels (same keys in `artifact-labels.mjs`). Content stays.
+4. Fix what the material answers; route the rest through Step 4.
+5. Save to the same path. Revise mode never moves the file: an import places it under `<worksDir>` at G1. With `--pipeline <slug>` the path is already `<worksDir>/<slug>/prd.md`.
 
-```jsonc
-{
-  "feature": {
-    "name": "",                // required
-    "targetScreen": "",        // required — screen > component
-    "requirements": [],        // required
-    "acceptanceCriteria": [],  // required — derive from requirements if absent
-    "exceptions": [],
-    "relatedApi": []
-  },
-  "serverInterface": null,     // object | "pass" | null
-  "platformInterface": null,   // only collected when config platformInterface.enabled
-  "uiScenario": null,
-  "designGuide": null,
-  "sources": [],               // original material paths/links
-  "openQuestions": []          // see Question rules
-}
+Then Step 5.
+
+## Step 1 — Collect material, once
+
+One `AskUserQuestion` (multiSelect) for what exists, then have the user paste or attach all of it in the next message:
+- ticket · feature description
+- server interface spec
+- `<platformInterface.label>` interface spec — only when `platformInterface.enabled`
+- Figma · screenshots (UI scenarios, design)
+- publishing source (source-of-truth markup) paths
+
+Areas not selected are written as `—` in the PRD header `Coverage` field. Skip the question when the conversation already holds the material.
+
+**What to take from each kind of material**
+- Server spec: new or changed endpoints and methods, required request parameters and response fields, error codes and their response shape, boundary cases (empty list, paging, timeout), endpoints to mock as fixtures.
+- Platform spec: events and callbacks, when they fire, the data handed to the web app, platform differences, and how E2E can reproduce each one (prd-format, Platform Interface).
+- Figma · screenshots: screen states, entry conditions, visible elements, transition triggers, hooks in `ui.selectorPriority` order (test ids first), items that need visual review.
+
+**Large material**
+- Text over ~400 lines: save it to the scratchpad and keep only excerpts in context. Put its path under `## Sources`.
+- Read Figma through the Figma MCP when available (else a page fetch or the screenshots). With many screens, hand it to a `general-purpose` subagent and take back only the list above.
+
+## Step 2 — Draft
+
+Split the material into slots and fill each; never summarize a source as a whole. Every slot carries a confidence marker:
+- `stated` — written in the source
+- `inferred` — deduced from context
+- `?unclear` — not parsed, or ambiguous
+
+Required slots: feature name (`# <name> PRD`), target screen (`> **Scope**:`), acceptance criteria. ACs missing from the source are derived from the requirements and marked `inferred` in the `AC provenance` table.
+
+**When an interface spec is the input**
+- List every interface it defines in `### Spec I/F cross-check`, each with its requirement or a handling (`out of scope: <reason>`). An interface dropped while copying the spec into the PRD is invisible to every later check, because downstream treats the PRD as the baseline.
+- Every copied spec value (URL, key or signature basis, field name) carries its source (file · page or sheet · section).
+- When the spec lists both a proxy URL and a target URL, name the one the web client calls.
+
+**With a publishing source**, fill `### Publishing source` per screen and state. Implementation copies markup from it. A matching stylesheet does not help when the markup differs, and no automated check catches that.
+
+**Fixture mapping**: call the `dev-pipeline:fixture-advisor` agent with the endpoint list and the target screen, and mark each row `✅ exists` / `🆕 needed` against `e2e.fixturesDir`.
+
+## Step 3 — Lint the draft
+
+Write the draft to the scratchpad (`<scratchpad>/prd-extract-<feature-kebab>.draft.md`, named from the feature, not the slug settled in Step 5) and lint it there. In revise mode, lint the file itself.
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/coverage-gate.mjs" --prd <draft path> --lint
 ```
 
-Every slot value carries a confidence marker:
+Read `ok` first. `ok: false` → the run failed (`error` says why); never treat it as clean. Then `lint.errors`: fix from the material what you can before asking anything; the rest goes to the next question round. `no-ac` means no `**AC-NN**` line under the config locale's acceptance-criteria heading.
 
-| Marker | Meaning | Handling |
-|---|---|---|
-| `stated` | explicit in the source | collapsed as reference in confirmation rounds |
-| `inferred` | deduced from context | surfaced only when it passes the three gates |
-| `unclear` | parse failed / ambiguous | blocks progress if the slot is required; otherwise deferred |
+## Step 4 — Ask only blanks and contradictions
 
-**Required gate**: `name`, `targetScreen`, `acceptanceCriteria` must not be `unclear`/missing before leaving Step 1.5. Optional slots roll into `openQuestions`.
+An open item is asked only if it passes all three gates, in order:
+1. **Does it block a required slot or a lint error?** No → record it in `## Open Questions`; do not ask.
+2. **Does the material already answer it?** Yes → resolve it and note the evidence (source · frame · section).
+3. **Can this user answer it?** If it belongs to product, platform or server owners, record it in `## Open Questions` with that owner as the follow-up. Asking the user yields nothing.
 
-**Draft save**: after each `.5` confirmation round, overwrite `<scratchpad>/prd-extract-<feature-slug>.wip.json` with the whole state. Delete it when Step 6 saves the PRD.
+Bundle what passes into one `AskUserQuestion` call, at most 4 questions. After each round update the draft and lint again. Never re-ask an issue already answered, however it is worded. Items left as `Pass` or `?unclear` are carried into `## Open Questions`, never dropped.
 
-## Question rules
+## Step 5 — Save and report
 
-The goal is PRD accuracy, not question count. These rules apply to every `.5` round and every extra question in between.
+1. **Slug** (new PRD only): `<issue key>-<feature-kebab>` or `<feature-kebab>`; the issue key matches `issueKeyPattern`, taken from the argument, then the current branch name. Run the pre-emption check right before saving and handle a hit as the contract says (Slug):
+   ```bash
+   ls -d <worksDir>/<slug> <e2e.specsDir>/<slug> 2>/dev/null; git branch -a --list "*<slug>*"
+   ```
+2. Save only a draft whose last lint read `ok: true` with empty `lint.errors`: `mkdir -p <worksDir>/<slug>` and write `<worksDir>/<slug>/prd.md` (revise mode: the same path). Delete the WIP. Errors nobody here can answer → do not save; report them with the draft path.
+3. Show:
+   - path
+   - metrics: AC count · requirement count · coverage (server / platform / UI / design) · spec I/F cross-check (unmatched count) · publishing source present or not · open-question count
+   - pending decisions: the `## Open Questions` items that may block the next stage
+   - `lint.warnings`
 
-Each `openQuestions[]` entry:
-
-```jsonc
-{ "id": "OQ-03", "slot": "uiScenario", "question": "…",
-  "blocksRequired": false, "answerer": "user | product | platform | server",
-  "resolvableBy": ["figma", "serverSpec"], "status": "pending | ask | resolved | deferred", "resolution": null }
-```
-
-**Three gates — only what passes all three is asked:**
-
-1. Blocks a required slot? `false` → `deferred`; record in `## Open Questions`, do not ask.
-2. Could material not yet received answer it? `resolvableBy` non-empty → `pending`; re-judge after that material arrives.
-3. Is this user the answerer? `answerer !== "user"` → `deferred` with the follow-up owner noted. Asking the user yields nothing.
-
-Gate 1 hits are asked immediately regardless of gates 2–3. **Max 3 asks per round; ≤10 extra questions per interview** (required-slot blockers excluded). Overflow → `deferred`.
-
-**Resolution check on every new material** (Steps 2–5): before summarizing, compare all `pending` items against it. Answer found → `resolved` + evidence (file/frame/section), no question. Otherwise, if `resolvableBy` is exhausted → gate 3 → `ask` or `deferred`. Right before the final confirmation round (usually Step 5.5, or before Step 6 if skipped), settle every remaining `pending`. That is the last chance to ask.
-
-**Never ask twice**: search the queue before forming a question; same slot + same issue already answered/resolved → use it. On resume, read the queue from the draft first. "Ask me everything" from the user does not lift gate 3 — show the deferred items as a "to confirm with product/platform" list instead.
-
-**Round display**: only `ask` items under "Needs confirmation now"; `pending` as a one-line count with the material that would resolve them; `deferred` not shown (it appears in the PRD).
-
-## Source preservation
-
-- Pasted tickets/specs are kept after slot decomposition: store the text or its path in `sources[]` → PRD `## Sources`.
-- Material over ~400 lines: save to the session scratchpad instead of holding it in context; keep only slot excerpts. Only then consider delegating the parse to a `general-purpose` subagent — below that size, parsing in the main context is cheaper than the round trip.
-
-## Phase 1 — Requirement collection
-
-### Step 1 — Feature information → `AskUserQuestion`
-
-**Question**: "Which feature should we write the spec for?"
-- header: `Feature`
-- options:
-  - `Paste a ticket` — ticket body (text/markdown) in the next message
-  - `Describe it` — feature name and scope in your own words
-  - `Use what I already told you` — pull from the current conversation
-
-Follow-up prompt text per option: [interview-prompts.md § Step 1](references/interview-prompts.md). Parse into slots with markers; large material per Source preservation.
-
-### Step 1.5 — Confirm feature understanding → `AskUserQuestion` [auto]
-
-Immediately after Step 1, present the slot summary (template in [interview-prompts.md § Step 1.5](references/interview-prompts.md)) showing only `ask` items and required-slot blockers up top, pending count, then `stated` slots collapsed.
-
-**Question**: "Is this understanding of the feature correct?"
-- header: `Confirm feature`
-- options:
-  - `Correct — next step`
-  - `Answer what I can now` — text for the items listed; the rest waits for later material
-  - `Let me re-enter it` — back to Step 1
-
-Required gate applies: with any required slot `unclear`, do not accept `Correct`; request that slot first.
-
-### Step 2 — External interfaces → `AskUserQuestion`
-
-Always ask about the **server API**; ask about the **platform bridge** only when `platformInterface.enabled` is true (use `platformInterface.label` in the wording). Two questions in one call when both apply.
-
-**Question A**: "Is there a server API spec or server-side work for this feature?"
-- header: `Server API`
-- options: `Yes — paste it` / `Yes — attach a file` / `None` / `Pass — fill in later`
-
-**Question B** (conditional): "Is there a <label> interface spec (events, callbacks, SDK calls)?"
-- header: `<label>`
-- options: `Yes — paste it` / `Yes — attach a file` / `None` / `Pass — fill in later`
-
-Follow-up texts and what to extract: [interview-prompts.md § Step 2](references/interview-prompts.md). Attached files are read with Read.
-
-**When the material is an external interface spec, do two more things.** A defect introduced while copying the spec into the PRD is invisible to every later check — AC coverage uses the PRD as its baseline.
-1. **I/F list cross-check** — list **every** interface the spec defines (I/F ID · method · path) and map each to a requirement. Unmatched interfaces are resolved at Step 2.5. (A downstream project missed a new endpoint here: no requirement, so no AC, TC or task, and the implementation kept calling the old path.)
-2. **Source for every copied spec value** — each URL, key/signature basis, and field name written into the PRD carries its location in the spec (file · page/sheet · section/table). When the spec lists both a proxy URL and a target URL, **name the one the web client calls.** (The same project copied the target path and was routed to the old API; a mis-copied key basis nearly led to "fixing" correct code.)
-
-### Step 2.5 — Confirm interfaces → `AskUserQuestion` [only when something was provided]
-
-Run the resolution check first. **Chunking**: more than 5 endpoints (or events) → confirm in groups, one round per group.
-
-Before proposing fixture names, call the `dev-pipeline:fixture-advisor` agent with the endpoint list and target screen. Mark each endpoint's fixture `✅ exists` or `🆕 needed` against `e2e.fixturesDir`.
-
-Summary template: [interview-prompts.md § Step 2.5](references/interview-prompts.md).
-
-**Spec input with unmatched interfaces** → before this confirmation, resolve each one: `Add requirement` (draft the requirement and AC) or `Out of scope` (take a reason). A copied spec value without a source stays `unclear` and blocks like a required slot.
-
-**Question**: "Is this understanding of the external interfaces correct?"
-- header: `Confirm interfaces`
-- options: `Correct — next step` / `Needs corrections` / `There is more spec`
-
-### Step 3 — UI scenarios → `AskUserQuestion`
-
-**Question**: "Do you have UI scenario material?"
-- header: `UI scenarios`
-- options: `Figma URL` / `Screenshots` / `Both` / `None / Pass`
-
-On receipt, dispatch a `general-purpose` subagent with: feature name, target screen, the URL or images, and the extraction goals in [interview-prompts.md § Step 3](references/interview-prompts.md). Use the Figma MCP when available; otherwise WebFetch the URL or analyse screenshots.
-
-### Step 3.5 — Confirm UI scenarios → `AskUserQuestion` [when material was given]
-
-Resolution check, then the summary (template in [interview-prompts.md § Step 3.5](references/interview-prompts.md)).
-
-**Question**: "Is this understanding of the UI scenarios correct?"
-- header: `Confirm scenarios`
-- options: `Correct — next step` / `Needs corrections` / `Let me add context`
-
-### Step 4 — Design guide → `AskUserQuestion`
-
-**Question**: "Do you have design guide material?"
-- header: `Design guide`
-- options: `Figma URL` / `Screenshots` / `Same as the UI scenarios` / `Pass`
-
-`Same as the UI scenarios` → reuse the Step 3 agent result; do not spawn again. Otherwise dispatch a `general-purpose` subagent with the goals in [interview-prompts.md § Step 4](references/interview-prompts.md): hooks in `ui.selectorPriority` order (test ids first), component states, responsive notes, items that need manual visual review.
-
-### Step 4-b — Publishing source → `AskUserQuestion`
-
-**Question**: "Is there a publishing deliverable (source-of-truth markup) for these screens?"
-- header: `Markup source`
-- options:
-  - `Enter paths` — source file per screen/state, as text
-  - `None` — no publishing deliverable for this feature
-  - `Pass — fill in later`
-
-With a source, `tdd-implement` wiring tasks **copy markup (tags, class combinations, visibility conditions) from it** and report where they deviate. A downstream project whose stylesheet matched the source byte for byte still shipped 4 of 5 screen defects because the markup was rewritten (a different tag, two mutually exclusive root classes at once, a visibility condition the source does not have). Neither unit tests nor passing E2E specs catch this — the hooks exist and the values are right; things just overlap and shift.
-
-### Step 4.5 — Confirm design guide → `AskUserQuestion` [when material was given]
-
-Resolution check, then the summary ([interview-prompts.md § Step 4.5](references/interview-prompts.md)).
-
-**Question**: "Is this understanding of the design guide correct?"
-- header: `Confirm design`
-- options: `Correct — save the PRD` / `Needs corrections` / `I'll give you the exact hooks` — test ids / class names as text
-
-## Step 6 — Save the PRD
-
-Settle the queue: remaining `pending` → `ask` or `deferred`; if any `ask` exists, run one last round (max 3) **before** the save question.
-
-> **Caller-provided slug wins.** When invoked by `/dev-pipeline:auto-e2e-pipeline` or `auto-dev-pipeline`, the orchestrator passes a slug; use `<worksDir>/<slug>/prd.md` as the proposed path. Generate a kebab-case slug from the feature name only when running standalone. The slug is the work-directory name and the join key for every later artifact — downstream skills read it from the parent directory, so saving elsewhere breaks the pipeline.
-
-**Question**: "Ready to save the PRD. Confirm the path."
-- header: `Save PRD`
-- description: `Path: <worksDir>/<slug>/prd.md` + collected sections (Feature ✅ / Server ✅|⚠️Pass / <label> ✅|⚠️Pass|— / UI ✅|⚠️Pass / Design ✅|⚠️Pass / Markup source ✅|—|⚠️Pass)
-- options:
-  - `Save here`
-  - `Change the slug` — work-directory name as text; file name stays `prd.md`
-  - `Go back and edit` — return to the last confirmation step
-
-Then `mkdir -p <worksDir>/<slug>`, render the PRD from the state object per [prd-format.md](references/prd-format.md), Write it, delete the `.wip.json`.
-
-## Step transitions
-
-| Step | Enters when | Passes when |
-|---|---|---|
-| 1 → 1.5 | feature info received | summary confirmed |
-| 1.5 → 2 | required slots settled | |
-| 2 → 2.5 | any interface material given | confirmed (skipped on None/Pass) |
-| 2.5 → 3 | interface step done | |
-| 3 → 3.5 | scenario material given | confirmed (skipped on None/Pass) |
-| 3.5 → 4 | scenario step done | |
-| 4 → 4-b | design step answered | |
-| 4-b → 4.5 | markup-source step answered | design confirmed (skipped when no design material) |
-| 4.5 → 6 | design step done | |
-| 6 | queue settled | path confirmed, file written |
-
-Minimum path: 2 rounds (Step 1 → 1.5 → all Pass → 6). Typical: 7–9 rounds.
-
-## Handoff
-
-After saving, print:
-
-```
-✅ PRD saved: <path>
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Next — extract test cases
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-/dev-pipeline:tc-extract <path>
-
-→ Analyses the code behind the PRD and extracts test cases.
-→ Output: <worksDir>/<slug>/tc.md
-```
+With `--pipeline` this is the gate summary and G1 is the router's. Standalone, confirm once with `AskUserQuestion` (`Confirm` / `Needs corrections` → revise mode on the saved file), then point to the next step: `/dev-pipeline:tc-extract <worksDir>/<slug>/prd.md`.
 
 ## Text rules for every AskUserQuestion
 
-- no unreplaced `[...]` variables, no truncated descriptions
-- labels are plain language; put code, selectors, and paths in the description
-- options in one question share one grammatical form; `(Recommended)` on at most one
+- no unreplaced `[...]` placeholders, no truncated descriptions
+- labels in plain language; code, selectors and paths go in the description
+- non-ASCII text written literally, never as `\uXXXX` escapes
+- `(Recommended)` on at most one option, and only with a basis named in the description

@@ -17,7 +17,7 @@ Minimum path is three rounds (screen → interaction → summary). Every `AskUse
 | 4-2 pick checkpoints | `AskUserQuestion` multiSelect (+ text loop) | |
 | 4.5 success criteria | `AskUserQuestion` `[optional]` | |
 | 4.7 notes | `AskUserQuestion` `[optional]` | |
-| 5+6 verdict + extras | `AskUserQuestion` × 2 | verdict question skipped when `ai.provider` = none |
+| 5+6 extras | `AskUserQuestion` | |
 | summary | `AskUserQuestion` | |
 | 7 completion | `AskUserQuestion` (after runtime PASS) | |
 
@@ -33,7 +33,7 @@ Without a catalog, print: "Which screen or feature is under test? Name it as you
 
 Then `Agent(dev-pipeline:screen-context)` with the name. Confirm in one line: "`<name>` → `<pageFile>` (url `<url>`). Correct?" — the user corrects via text. `confidence: low` → say which parts are guesses.
 
-The resolved screen name is the `screen` value passed to `analyze()` and to every agent.
+The resolved screen name is the `screen` value shown in the report and passed to every agent.
 
 ## Step 1.5 — Test name (text)
 
@@ -43,7 +43,7 @@ The resolved screen name is the `screen` value passed to `analyze()` and to ever
 
 Explain the trade-off in the description, in these words:
 
-- **Direct URL + fixtures** — open the target page directly and pin API responses to saved fixtures. Verifies **app logic only** (rendering, state transitions, flow). Backend and asset availability are out of scope; unmatched requests are stubbed so image 404s cannot fail the test. Deterministic, CI-safe. Fixtures must be real captured data to avoid reference errors.
+- **Direct URL + fixtures** — open the target page directly and pin API responses to saved fixtures. Verifies **app logic only** (rendering, state transitions, flow). Backend and asset availability are out of scope. Unmatched data requests are stubbed only when one of the mocked globs is listed in config `e2e.bootFixtures` (the assembler isolates the spec then); otherwise the spec runs on the real API with the fixtures laid over it. With `e2e.bootFixtures` empty, fixture-advisor's `[gaps]` suggests which boot globs to add. Deterministic and CI-safe once isolated. Fixtures must be real captured data to avoid reference errors.
 - **Live data + goal-directed navigation** — run against live backend data and navigate to the target by describing it. Detects backend errors (4xx/5xx are meaningful). Fits pages whose data keeps changing. Tag `@live-data`, keep out of CI.
 
 **Question**: "How should the test reach the target page?"
@@ -90,7 +90,7 @@ Related existing specs from the advisor go into the description as "see also: `<
    - header: `Steps`
    - options: `Yes, generate the spec (Recommended)` / `Adjust timeouts or loop limit` (text) / `Change a target` (text → advisor re-run)
 
-The confirmed plan is passed to spec-writer as `navigationPlan`; `startUrl` from the plan overrides Step 3a when present. The generated spec's first line is `// @live-data — depends on live backend data`.
+The confirmed plan is passed to spec-writer as `navigationPlan` with `navigationStrategy: 'C2'`; `startUrl` from the plan overrides Step 3a when present. Add `@live-data — depends on live backend data` to `notes`; the spec runs against the real API (`testMode: 'real-api'`).
 
 ## Step 3a — Start URL → `AskUserQuestion`
 
@@ -124,7 +124,7 @@ The sequence is converted into plan steps exactly as batch-mode.md's DSL table d
 
 **Question**: "What should the test verify?"
 - header: `Verification types`
-- options: `DOM` (element visible/hidden/text) · `Focus` (which element/area holds focus) · `State` (**only when `ui.stateBridge` is set**) · `Runtime only` (no console errors + AI verdict)
+- options: `DOM` (element visible/hidden/text) · `Focus` (which element/area holds focus) · `State` (**only when `ui.stateBridge` is set**) · `Runtime only` (no console errors; rule-based verdict)
 
 `Runtime only` alone → skip 1.5 and 2, `verifications = []`.
 
@@ -142,19 +142,21 @@ The sequence is converted into plan steps exactly as batch-mode.md's DSL table d
 Selected items → `verifications[]` (`cp-01`, `cp-02`, … in selection order):
 
 ```
-"[DOM] testid:card-title → visible"         → { type:'DOM', target:{by:'testid',value:'card-title'}, condition:'visible' }
-"[DOM] .title → hasText('Inception')"       → { type:'DOM', target:{by:'css',value:'.title'}, condition:"hasText('Inception')" }
-"[Focus] activeElement matches('.search')"  → { type:'Focus', target:'activeElement', condition:"matches('.search')" }
-"[State] catalog.items → length(12)"        → { type:'State', path:'catalog.items', condition:'length(12)' }
+"[DOM] testid:card-title → visible"         → { type:'DOM', selector:'testid:card-title', condition:'visible' }
+"[DOM] .title → hasText('Inception')"       → { type:'DOM', selector:'.title', condition:"hasText('Inception')" }
+"[Focus] focus includes('search')"          → { type:'Focus', condition:"includes('search')" }
+"[State] catalog.items → toHaveLength(12)"  → { type:'State', path:'catalog.items', condition:'toHaveLength(12)' }
 ```
 
-`Add my own` → text prompt with the three formats (`<target> → <condition>`, `activeElement → matches('<css>')`, `<store>.<path> → <condition>`), then `AskUserQuestion`: `Add another` / `Done (N checkpoints)`.
+`soft: true` carries over from the advisor's candidate. Conditions follow the Checkpoints forms in `${CLAUDE_PLUGIN_ROOT}/skills/tc-extract/references/tc-format.md`; anything else stops the assembler.
+
+`Add my own` → text prompt with the three formats (`<target> → <condition>`, `focus → includes('<text>')`, `<store>.<path> → <condition>`), then `AskUserQuestion`: `Add another` / `Done (N checkpoints)`.
 
 ## Step 4.5 — Success criteria → `AskUserQuestion` `[optional]`
 
-**Question**: "How should 'success' be described for the AI verdict?"
+**Question**: "How should 'success' be described in the report?"
 - header: `Success criteria`
-- options: `Generate from the checkpoints (Recommended)` / `Add a one-line scenario` (text → also passed as `acceptanceCriteria`) / `Write it myself` (text) / `Pass — none`
+- options: `Generate from the checkpoints (Recommended)` / `Add a one-line scenario` (text → appended to `successCriteriaText`) / `Write it myself` (text) / `Pass — none`
 
 Auto template: `"After entering <screen>, <checkpoints in plain words joined with 'and'>."` When `e2e.softTrack` applies to a checkpoint, phrase it as "the request is issued", not "the response arrives".
 
@@ -166,15 +168,11 @@ Auto template: `"After entering <screen>, <checkpoints in plain words joined wit
 
 Notes land in the spec header comment.
 
-## Step 5+6 — Verdict and extras (one round, two questions)
+## Step 5+6 — Extras
 
-**Question 1** (skipped when `e2e.ai.provider` is `none`): "AI verdict threshold?"
-- header: `Verdict`
-- options: `Allow WARNING (Recommended)` → `['PASS','WARNING']` / `PASS only` → `['PASS']`
-
-**Question 2**: "Change any extra settings?" — multiSelect
+**Question**: "Change any extra settings?"
 - header: `Extras`
-- options: `Defaults (Recommended)` (screenshot always, no console whitelist) / `Screenshot on failure only` / `Add console-error patterns to ignore` (text, one per line → `CONSOLE_ERROR_WHITELIST`)
+- options: `Defaults (Recommended)` (no console whitelist) / `Add console-error patterns to ignore` (text, one per line → `consoleErrorWhitelist`)
 
 ## Summary → `AskUserQuestion`
 
@@ -191,7 +189,6 @@ Notes land in the spec header comment.
   steps       <one line>
   checkpoints <n>: [DOM] … (cp-01) / [Focus] … (cp-02) / …
   success     <text or none>
-  verdict     <statuses>
   whitelist   <patterns or none>
   notes       <text or none>
   ```

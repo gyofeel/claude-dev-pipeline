@@ -7,7 +7,7 @@ description: Use when a developer wants their own coding style (code shape, pref
 
 Builds one developer's style file from commit history plus a short confirmation. A style file holds **tendencies and context, not rules**. This skill judges nothing either: it writes "this person tends to write it this way", with evidence.
 
-`/dev-pipeline:tdd-implement` reads the file at I-4b and points every plan task at the matching section.
+`/dev-pipeline:tdd-implement` reads the file at PLAN step 4 (style context) and points every plan task at the matching section.
 
 ## Usage
 

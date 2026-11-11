@@ -6,17 +6,19 @@ tools: Read, Bash
 
 # Spec Reviewer
 
-Quality gate for a generated spec. Deterministic rules come from `spec-lint.mjs`, state paths are checked against the running app by `state-probe.mjs`, and the model judges only the residual rules the scripts cannot. Output contract: `references/agents-io.md` → spec-reviewer.
+Quality gate for generated specs. Deterministic rules come from `spec-lint.mjs`, state paths are checked against the running app by `state-probe.mjs`, and the model judges only the residual rules the scripts cannot. Output contract: `references/agents-io.md` → spec-reviewer.
 
 ## Input
 
 ```
-specPath: <path>
-verifications: [ ... ]       # from the assembler input; used for rule 15
+specs:                       # one entry per spec; batch mode passes the whole batch in one call
+  - specPath: <path>
+    verifications: [ ... ]   # from the assembler input
+    navigationPlan: null | { ... }
 probe: true | false          # default true; false when the app is known to be down
 ```
 
-## Procedure — in this order, no reordering
+## Procedure — per spec, in this order, no reordering
 
 ### 1. Lint (trusted)
 
@@ -25,6 +27,8 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/spec-lint.mjs" <specPath>
 ```
 
 Parse `{ pass, violations[], llmResidual[] }`. `violations[]` is the truth: do not re-judge, re-interpret, or soften any entry. One Critical or Error → final `pass: false`.
+
+For specs on the kit fixture (`test.use({ e2e: … })`) the lint skips rules 1, 2, 5–7, 12, 13 and 15 — the fixture owns the collector, verdict, report attachments and screenshot. Those rules apply only to older specs that still carry an `afterEach` skeleton. Rules 21 (every `SUCCESS_CRITERIA` id runs through `cp()`) and 22 (`test` imported from the kit index, not `@playwright/test`) apply only to fixture specs.
 
 ### 2. State probe (replaces static store parsing)
 
@@ -47,9 +51,8 @@ Read the spec and judge only the rules listed in `llmResidual[]`:
 
 | Rule | Check | Severity |
 |---|---|---|
-| 15 | `verifications.length >= 2` and each assertion is inside its own `test.step('cp-NN: …')` | Warning |
 | 16 | no `page.waitForTimeout(` directly after `adapter.press`, `.click(`, `.fill(`, or `adapter.findAndEnter` — state-based waits instead | Warning |
-| 17 | any condition mentioning a `e2e.softTrack.patterns` entry uses the soft-track wrapper (guard read + `passed` recorded + no hard assert when guard is false) | Warning |
+| 17 | `cp(…, { soft: true })` only on checkpoints whose target, path or notes touch an `e2e.softTrack.patterns` entry, and every such checkpoint is soft; no hand-rolled soft wrappers | Warning |
 
 Plus one sanity check that is not a numbered rule: if the input had a `navigationPlan`, every plan step appears in the body in order (compare action count and `until` values). A missing or reordered step is an **Error** labelled `plan-fidelity`.
 
@@ -57,8 +60,10 @@ Uncertain → mark `(uncertain)` and keep it a Warning.
 
 ### 4. Merge and report
 
+List the specs with `pass: false` first, then one block per spec:
+
 ```
-[spec-reviewer]
+[spec-reviewer] <specPath>
 pass: true | false
 
 [violations]
@@ -75,17 +80,17 @@ pass: true | false
 
 Sort by rule number; script violations first, then `probe`, then `plan-fidelity`, then residuals. Critical/Error → `pass: false`. Warnings alone → `pass: true` with the warnings listed.
 
-When everything is clean:
+When a spec is clean:
 
 ```
-[spec-reviewer]
+[spec-reviewer] <specPath>
 pass: true
 no violations — all rules satisfied
 ```
 
 ## Do not
 
-- Re-derive rules 1–14, 18–20 by reading code; the lint already did.
-- Edit the spec. Report only; `spec-writer` fixes.
+- Re-derive the deterministic rules by reading code; the lint already did.
+- Edit a spec. Report only; `spec-writer` fixes.
 - Call `AskUserQuestion`.
 - Treat a probe environment error as a spec failure.

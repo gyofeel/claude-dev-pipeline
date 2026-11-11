@@ -23,7 +23,7 @@ endpoints: [<method> <path>, ...]     # optional, from the PRD server-interface 
 node "${CLAUDE_PLUGIN_ROOT}/scripts/config-load.mjs"
 ```
 
-Use `resolved.e2e.fixturesDir`, `resolved.e2e.specsDir`.
+Use `resolved.e2e.fixturesDir`, `resolved.e2e.specsDir`, `resolved.e2e.bootFixtures`.
 
 ## Step 1 — Inventory
 
@@ -50,11 +50,11 @@ Match `endpoints[]` and `screen` keywords against the inventory. For each recomm
 
 ### Boot-critical fixtures
 
-An app that is isolated from the network (`mockAll` with `isolate: true` stubs every unmatched data request with `{}`) only boots if the requests its shell needs at start-up are answered with real shapes. Detect them from existing specs: any `mockAll` route that appears in **most** specs (or lives in a shared fixtures subfolder such as `_common/`) is boot-critical. Always list those first under `[recommended]` with the reason `boot-critical (used by N specs)`, regardless of the screen. Missing them shows up later as a `waitForAppReady` timeout, which is expensive to diagnose.
+An app that is isolated from the network (`mockAll` with `isolate: true` stubs every unmatched data request with `{}`) only boots if the requests its shell needs at start-up are answered with real shapes. The spec assembler isolates a spec exactly when its fixtures map lists a glob from config `e2e.bootFixtures`, so those globs are the boot-critical set. Always list them first under `[recommended]` with the reason `boot-critical (e2e.bootFixtures)`, regardless of the screen; leaving them out makes the spec run against the real API instead. `e2e.bootFixtures` empty → infer candidates from existing specs (a `mockAll` route that appears in **most** specs, or a shared fixtures subfolder such as `_common/`), mark them `boot-critical (used by N specs)`, and add a `[gaps]` line suggesting they go into `e2e.bootFixtures`. A missing boot fixture shows up later as a `waitForAppReady` timeout, which is expensive to diagnose.
 
 ### Glob shape
 
-Copy the URL pattern exactly as existing specs write it. Requests usually carry a query string, so a pattern must end with `*` (`**/api/gnb/list*`), otherwise it never matches and the isolation stub answers instead. When you derive a new pattern from an endpoint, append `*`.
+Copy the URL pattern exactly as existing specs write it. Requests usually carry a query string, so a pattern must end with `*` (`**/api/items*`), otherwise it never matches and the isolation stub answers instead. When you derive a new pattern from an endpoint, append `*`. A glob that matches nothing is reported after the run as `mock-unused` (every test in that spec file fails); the usual causes are this missing `*` or a service worker answering before `page.route` sees the request.
 
 ## Step 4 — Gaps
 

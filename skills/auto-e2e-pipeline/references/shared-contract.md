@@ -1,155 +1,200 @@
-# Shared pipeline contract — gates, slug, state file
+# Shared pipeline contract
 
-Both orchestrators (`auto-e2e-pipeline`, `auto-dev-pipeline`) follow this document. Defining it twice causes drift; do not copy it.
+> `dev-pipeline:auto-e2e-pipeline` and `dev-pipeline:auto-dev-pipeline` both follow this document. Each router reads it before Step 0. Defining it twice causes drift; do not copy it.
 
-Paths come from `.agents/pipeline.config.json` (`worksDir`, `e2e.specsDir`, `branchPrefix`, `issueKeyPattern`). Below, `<worksDir>` etc. stand for the resolved values.
+Paths come from `.agents/pipeline.config.json` (`worksDir`, `e2e.specsDir`, `e2e.kitDir`, `branchPrefix`, `issueKeyPattern`, `locale`). Below, `<worksDir>` etc. stand for the resolved values and `<plugin>` for `${CLAUDE_PLUGIN_ROOT}`.
 
-## Gate contract (every G)
+## Contents
+- Graph principle
+- Nodes, gates and deterministic checks
+- Reading check output
+- Routing (resume · entry)
+- External PRD import
+- Node call convention (`--pipeline`)
+- Gates and the next session
+- Slug
+- State file
 
-A stage transition passes through exactly one `AskUserQuestion`. Its `description` carries three things:
+## Graph principle
 
-1. **Artifact path** — full path so the user can open it
-2. **Key metrics** — counts produced by the stage (each gate defines its metric line)
-3. **Review checklist, 2–3 lines** — only what a human must actually look at; never "review everything"
+The pipeline is a graph of nodes (one artifact + its deterministic checks) and gates (human decisions). When something goes wrong, look for what is missing before adding a rule: a node, an edge, or a data contract. Whatever can be decided deterministically moves into `<plugin>/scripts/*`. Prose rules are only for judgement calls, and each names the node that enforces it.
 
-Options (4; the last gate has 3):
+## Nodes, gates and deterministic checks
+
+```
+auto-dev-pipeline   PRD ─G1→ TC ─G2→ PLAN ─G3a→ IMPL ─G3→ E2E ─G4
+auto-e2e-pipeline   PRD ─G1→ TC ─G2→ E2E ─G3
+                     ↑
+                     └ import (external PRD) ─G1→
+```
+
+The deterministic checks are already in the node's output. The router does not turn them into a checklist for the human.
+
+| Gate | Check (run by the node) |
+|---|---|
+| G1 | `node <plugin>/scripts/coverage-gate.mjs --prd <worksDir>/<slug>/prd.md --lint` |
+| G2 | `node <plugin>/scripts/coverage-gate.mjs --prd <worksDir>/<slug>/prd.md --tc <worksDir>/<slug>/tc.md --lint` |
+| G3a | `node <plugin>/scripts/coverage-gate.mjs --prd <worksDir>/<slug>/prd.md --tc <worksDir>/<slug>/tc.md --plan <worksDir>/<slug>/<slug>-plan.md --lint` |
+| G3 (dev) | `node <plugin>/scripts/red-gate.mjs --phase green --plan <worksDir>/<slug>/<slug>-plan.md --all` (regression + ledger audit) · `node <plugin>/scripts/surface-gate.mjs --base <branch start commit>` · `node <plugin>/scripts/coverage-gate.mjs --prd … --tc … --plan …` |
+
+If `ok` is `false`, `lint.errors` is non-empty, or `uncovered` is non-empty, **do not open the gate.** Re-run the node.
+
+## Reading check output
+
+Every script prints one JSON object and always exits 0. The exit code says nothing; read the fields.
+
+**coverage-gate** — read `ok` first.
+- `ok: false` → the run itself failed; `error` says why (`no-ac`, `no-tc`, `no-related-ac` when no TC at all has a related-AC row, a missing argument, or a config error). With `--lint` the same messages are also in `lint.errors`. Never treat this as a pass.
+- Zero-target codes appear in `error` (`ok: false`) **or** only in `lint.errors` (`ok: true`): `no-ac` (no `AC-NN` under the acceptance-criteria heading of the configured `locale`) is lint-only in `--prd --lint` mode; `no-targets` (`source.roots` matched no source file) and per-TC `no-related-ac` (one TC lacks the row) are always lint-only. Read both places.
+- `ok: true` → then `uncovered` (G2: ACs no TC covers), `unknownRefs` (TCs pointing at ACs the PRD lacks), `missing` and `summary` / `table` (completion: one state per AC — `implemented` · `verifyOnly` · `split` · `excluded` · `missing`), and `lint.errors` / `lint.warnings`.
+- Headings and field names are read with the labels of config `locale` (`<plugin>/kit/artifact-labels.mjs`). A PRD or TC file written with the other locale's headings fails as `no-ac` / `no-related-ac`, never as "uncovered 0".
+
+**red-gate** — read `ok`, `failureClass`, `routeTo`. The ledger is `red-evidence.jsonl` next to the plan: `<worksDir>/<slug>/red-evidence.jsonl`. `--project` is optional (omitted = no runner project filter).
+
+| `failureClass` | `routeTo` |
+|---|---|
+| `OK_RED` · `OK_GREEN` · `OK_CHAR` | `null` (pass) |
+| `ENV` | `user:env` — environment, not a test defect; no fix round |
+| `NOT_COLLECTED` · `SKIPPED` | `controller:placement` |
+| `GREEN_WITHOUT_RED` · `NO_RED_ON_RECORD` · `GATE_ERROR` | `controller:halt` |
+| `RUN_INCOMPLETE` | `controller:rerun` — the run did not finish; no regression can be claimed |
+| `TARGET_NOT_FOUND` · `TARGET_AMBIGUOUS` · `WRONG_REASON` · `WRONG_REASON{module}` · `WRONG_REASON_UNKNOWN` | `implementer:test-only` |
+| `STILL_RED` · `COLLATERAL_RED` | `implementer` |
+
+With `--all`, `audit.violations` (GREEN without an earlier RED, tests whose last record failed) and `audit.tasksWithoutEvidence` go to G3 as they are. Per-task routing is `dev-pipeline:tdd-implement`'s failure-routing table.
+
+**surface-gate** — report only. `reachability.unreachableFiles` / `reachability.unreferencedExports` (new code nothing reaches) and `vanishedTokens` (identifiers removed from production code that existing specs still use).
+
+## Routing
+
+The router picks the next node in this order. **If exactly one run is in progress, do not ask.**
+
+1. **A file path argument** decides by kind. Under `<worksDir>`, the slug is the parent directory name.
+   - `<worksDir>/<slug>/prd.md`:
+     - its directory has a `state.json` → resume: go to that state's `next`. This is never an import.
+     - no `state.json` and no `tc.md` / `*-plan.md` beside it → **External PRD import** (below)
+     - no `state.json` but later artifacts beside it → infer from the artifacts (rule 4)
+   - A PRD file outside `<worksDir>` (`prd.md`, or any other `.md` the user passes as the PRD) → **External PRD import**
+   - `tc.md` → dev: PLAN / e2e: E2E. `*-plan.md` → IMPL (auto-dev only).
+2. **A slug or issue key argument** → go to `next` of `<worksDir>/<that>*/state.json`.
+3. **No argument** → look for runs in `ls <worksDir>/*/state.json` whose `pipeline` is this router and whose `next` is not `null`.
+   - one → go to its `next`
+   - several → list them and let the user pick (`AskUserQuestion`, once)
+   - none → start a new run at PRD
+4. **No state file but artifacts exist** → infer the point from the artifacts (`prd.md` · `tc.md` · `*-plan.md` · `red-evidence.jsonl`). The state file is a convenience, not the source of truth.
+5. **Resuming IMPL** → check `Task N: complete` in `.superpowers/sdd/<slug>-plan/progress.md`. Never re-run finished tasks.
+
+`options` (e.g. `-no-e2e`) are restored from the state file. An option given in this invocation wins.
+
+## External PRD import
+
+For a PRD written outside the pipeline. The router never edits the PRD.
+
+1. Check the file where it is:
+   ```bash
+   node <plugin>/scripts/coverage-gate.mjs --prd <path> --lint
+   ```
+2. `ok: false` or non-empty `lint.errors` → print a fix list and **stop**. One line per error: location (heading or line) · expected format (the heading or field for config `locale`, from `<plugin>/kit/artifact-labels.mjs`) · current value. Add `lint.warnings` below it. Do not fix the PRD and do not open G1. The user fixes it by hand (or reworks it with `dev-pipeline:prd-extract`) and runs the same router command again.
+3. No errors → open **G1** (one `AskUserQuestion`):
+   - slug — when the file is already `<worksDir>/<dir>/prd.md`, propose `<dir>`; otherwise propose one from the issue key and the PRD title (see Slug). Run the pre-emption check first, but ignore a hit on `<worksDir>/<dir>` itself — that is the PRD being imported, not someone else's work. Any other hit is a real collision.
+   - which items under `## Open Questions` (`ko`: `## 확인 필요`) block the next stage — a blocking item stops the import the same way as step 2
+   - the progress choice (Gates and the next session)
+4. On approval, place the PRD at `<worksDir>/<slug>/prd.md` by one rule:
+   - file outside `<worksDir>` → copy it (`mkdir -p <worksDir>/<slug> && cp <path> <worksDir>/<slug>/prd.md`); the original stays untouched
+   - file at `<worksDir>/<dir>/prd.md` and the slug kept as `<dir>` → nothing to do
+   - file at `<worksDir>/<dir>/prd.md` and the slug renamed at G1 → move the directory: `git mv <worksDir>/<dir> <worksDir>/<slug>` (plain `mv` if it is untracked); `sourcePath` keeps the path as given
+   - write the state file with `"source": "external"`, `"sourcePath": "<path as given>"`, the `prd-extract` stage `done` with `confirmedAt`, and `next` = `tc-extract`
+   - go to the TC node (or stop for a new session, per the progress choice)
+
+## Node call convention
+
+The router calls each node skill with `--pipeline <slug>` (the PRD node of a new run gets `--pipeline` alone; it proposes the slug). `dev-pipeline:tdd-implement` is the exception: it takes the slug from its input path, opens its own gates (G3a, G3) with the progress question in the same call, and updates its own stages; the router does not ask the progress question again. A node that receives `--pipeline`:
+- does not ask for a save path; it saves to `<worksDir>/<slug>/` under its fixed file name
+- skips its own final confirmation question and "next step" guidance; the human confirms once, at the router's gate, so nothing is asked twice
+- ends with a **gate summary**: artifact path · key metrics · pending decisions (only what a human must decide) · deterministic check result (the `lint.errors` list when not empty, or `error` when `ok` is false)
+
+Run standalone (no `--pipeline`), a node does its own confirmation and guidance as usual.
+
+## Gates and the next session
+
+A gate is **one** `AskUserQuestion`, with up to 4 questions in that call (e.g. confirm the pending decisions + how to proceed). The progress question is asked by whoever opens the gate — the router, or tdd-implement at G3a / G3 — never by both.
+- `description` carries: artifact path · metrics · pending decisions.
+- Never re-ask as a checklist what a deterministic check already covered.
+- Put `(Recommended)` only on an option that has a basis, and name the source in the description. The PRD comes first, then sibling convention (the existing branches of the same switch, existing code that reads the same input). Only PRD items marked as stated count; an inferred item is the PRD node's reading and does not override sibling convention. A requirement like "same as existing X" settles only what X explicitly covers. Never recommend an option that departs from convention without a basis. When siblings disagree, the sibling at the insertion point (the existing branches of the same switch) wins: entry information visible only at that spot (e.g. a flag the caller passes in) is not overridden by other code that reads the same input elsewhere. When siblings of the same rank disagree there is no convention: recommend neither and put both locations in the description; if the PRD wording decides it (even inferred), the PRD is the basis. No basis → no recommendation on that question. A recommendation tends to be clicked as is, so an unfounded one passes without review.
+
+Progress options:
 
 | Option | Action |
 |---|---|
-| `Artifact reviewed — continue` | mark the stage `done` + `confirmedAt` in the state file, invoke the next skill |
-| `Re-run this stage` | take correction text, re-invoke the **same skill** (overwrites the artifact), return to the same gate |
-| `Continue in a new session` | save state, print the resume command, **stop** |
-| `Stop here` | save state, list artifacts produced so far, stop |
+| `Next step in a new session (Recommended)` | update state (`done` + `confirmedAt`, `next`) → print the resume command and copy it to the clipboard → stop |
+| `Continue in this session` | update state, then call the next node |
+| `Re-run this step` | take the correction, run the same node again (overwrites its artifact), return to the same gate |
+| `Stop here` | save state, list the artifacts |
 
-The last gate offers `Done` / `Re-run this stage` / `Stop here`.
+Why a new session: every node loads tens of thousands of characters of skill text into the context. Later nodes then pay that cost every turn and lose quality. Every artifact is a file, so nothing is lost by splitting.
 
-> Why "new session": the sub-skill bodies are long. Running all stages in one context degrades later stages. Every artifact is a file, so nothing is lost by splitting.
+Resume command — always print it, and copy it with the first clipboard tool that exists (`pbcopy` macOS, `xclip` Linux/X11, `clip.exe` Windows/WSL). None, or the copy fails → print only.
 
-### Gate text rules
+```bash
+CMD="/dev-pipeline:<pipeline> <slug>"; COPIED=
+if command -v pbcopy >/dev/null 2>&1; then printf '%s' "$CMD" | pbcopy && COPIED=1
+elif command -v xclip >/dev/null 2>&1; then printf '%s' "$CMD" | xclip -selection clipboard && COPIED=1
+elif command -v clip.exe >/dev/null 2>&1; then printf '%s' "$CMD" | clip.exe && COPIED=1
+fi
+if [ -n "$COPIED" ]; then echo "Next: /clear → paste → Enter   (clipboard: $CMD)"; else echo "Next: /clear, then run: $CMD"; fi
+```
 
-Before calling `AskUserQuestion`, re-read every question, label, and description:
+The last node's gate offers only `Done` / `Re-run this step` / `Stop here`. After `Done`, auto-dev-pipeline runs `superpowers:finishing-a-development-branch` (tdd-implement runs it at G3 instead only when standalone or with `-no-e2e`). The node report's conclusion is the basis: `Approvable` (`ko`: `승인 가능`) → recommend `Done`; a defect left (`Not approvable — …` / `승인 불가 — …`) → recommend `Re-run this step`; `Needs review` (`확인 필요`) → list the remaining items in the question and recommend nothing.
 
-- no unreplaced `[...]` template variables
-- no truncated sentences (especially at the end of descriptions)
-- labels are plain language — no raw code, selectors, or state paths (put those in the description)
-- options within one question share one grammatical form; `(Recommended)` appears on at most one option
+**Gate text**:
+- write non-ASCII text literally — never `\uXXXX` escapes (one wrong digit is a different, valid-looking character)
+- no unreplaced `[...]` placeholders
+- no code or paths in labels (put them in the description)
 
 ## Slug
 
-A **slug** is the short identifier of one feature. It names the work directory and joins every artifact.
+The identifier of one feature and the join key across its artifacts.
 
 ```
-slug = PROJ-1234-home-block-filter
-├─ <worksDir>/PROJ-1234-home-block-filter/        work directory
-│   ├─ prd.md                                     requirements
-│   ├─ tc.md                                      test cases
-│   ├─ PROJ-1234-home-block-filter-plan.md        implementation plan
-│   └─ state.json                                 progress (gitignored)
-├─ .superpowers/sdd/PROJ-1234-home-block-filter-plan/   SDD workspace (superpowers)
-├─ <e2e.specsDir>/PROJ-1234-home-block-filter/    E2E specs
-└─ branch: <branchPrefix>PROJ-1234-home-block-filter
+<worksDir>/<slug>/{prd.md, tc.md, <slug>-plan.md, red-evidence.jsonl, state.json, e2e-report.md, e2e-loops.json}
+.superpowers/sdd/<slug>-plan/   SDD workspace (derived from the plan's basename)
+<e2e.specsDir>/<slug>/          E2E specs
+<branchPrefix><slug>            branch (auto-dev-pipeline)
 ```
 
-File names inside the work directory are fixed (`prd.md`, `tc.md`, `state.json`), so **the slug is read from the parent directory name.** Only the plan keeps the slug in its file name, because superpowers SDD names its workspace after the plan's basename (a plain `plan.md` would make every feature share `.superpowers/sdd/plan/`).
-
-Without a state file, artifacts are located by this layout to infer the resume point. **Therefore a colliding slug silently overwrites someone else's work** — hence the pre-emption check below.
-
-### Format
-
-```
-<issue-key>-<feature-kebab>     e.g. PROJ-1234-home-block-filter
-<feature-kebab>                 e.g. home-block-filter   (no ticket)
-```
-
-- issue key matches `issueKeyPattern` (default `[A-Z]+-\d+`)
-- feature part is lowercase kebab-case ASCII: it becomes a directory and branch name
-
-### Getting the issue key — first hit wins, never ask twice
-
-1. **From `$ARGUMENTS`** — `/dev-pipeline:auto-e2e-pipeline PROJ-1234 home block filter`
-2. **From the current branch** — `git branch --show-current`, match `issueKeyPattern` (works with `PROJ-1234`, `feature/PROJ-1234-x`, `feat/PROJ-1234-x`)
-3. **Otherwise ask once** at slug confirmation (below)
-
-### Slug confirmation — once, right before the PRD is saved
-
-The slug needs the feature name, and the feature name is settled by the `prd-extract` interview. So the confirmation point is **immediately before PRD save**, exactly once.
-
-**Question**: "Confirm the slug for this work. Artifact names are derived from it."
-- header: `Slug`
-- description: preview
+- **Format**: `<issue key>-<feature-kebab>` or `<feature-kebab>`. The issue key matches config `issueKeyPattern` and is taken from the argument, then the current branch name. The feature part is lowercase kebab-case ASCII — it becomes a directory and a branch name. Never force an issue key.
+- **Who sets it**: the PRD node proposes it from the feature name when it drafts, and saves under it. The human confirms it once at G1. Renamed at G1 → `git mv` the directory; no other artifact exists yet, so this costs nothing. Only the plan keeps the slug in its file name, because the SDD workspace is named after the plan's basename.
+- **Pre-emption check** (right before saving; never skip — a colliding slug overwrites someone else's work):
+  ```bash
+  ls -d <worksDir>/<slug> <e2e.specsDir>/<slug> 2>/dev/null; git branch -a --list "*<slug>*"
   ```
-  Proposed slug: PROJ-1234-home-block-filter
-    work dir   <worksDir>/PROJ-1234-home-block-filter/
-      prd.md · tc.md
-    branch     <branchPrefix>PROJ-1234-home-block-filter
-  ```
-- options:
-  - `Use this slug`
-  - `Enter a slug` — free text; if it violates the format, show a corrected proposal and confirm again
-  - `Continue without an issue key` — slug = feature part only
-
-> Never force an issue key. Spikes, defect reproductions, and personal experiments legitimately have none; forcing one produces fake keys and erodes the rule.
-
-### Early collision check — before the interview (Step 0)
-
-Once an issue key is known, scan for work already started on the same ticket, before spending interview time:
-
-```bash
-ls -d <worksDir>/${ISSUE}-* 2>/dev/null
-git branch -a --list "*${ISSUE}*"
-```
-
-A hit routes to the resume flow (0-c). No issue key → skip.
-
-### Pre-emption check — right after slug confirmation
-
-```bash
-ls -d <worksDir>/${SLUG} 2>/dev/null
-ls <worksDir>/${SLUG}/ 2>/dev/null
-ls -d <e2e.specsDir>/${SLUG} 2>/dev/null
-git branch -a --list "*${SLUG}*"
-```
-
-Any hit → stop and ask:
-
-**Question**: "Artifacts with this slug already exist. How should we proceed?"
-- header: `Slug collision`
-- description: found files/branches with their last-modified times
-- options:
-  - `Resume that work` — it is mine; go to the Step 0 resume flow
-  - `Start fresh with another slug` — take a new slug as text
-  - `Stop` — may belong to someone else; check before re-running
-
-### Passing the slug to sub-skills
-
-The orchestrator passes the confirmed slug explicitly on every sub-skill call (`/dev-pipeline:prd-extract --slug <slug> …`, `/dev-pipeline:tc-extract <prd path>`, `/dev-pipeline:e2e-test <tc path>`). `tc-extract` and `e2e-test` also derive it from the input file's parent directory, so the explicit value and the derived one must agree; the orchestrator checks this before the gate.
+  A hit → let the user pick `Resume that work` / `Use another slug` / `Stop`.
 
 ## State file
 
-Path: `<worksDir>/<slug>/state.json` — add `**/state.json` under `worksDir` to `.gitignore` (the `init` skill does this).
+Path: `<worksDir>/<slug>/state.json` (gitignored; the `init` skill adds the rule).
 
 ```json
 {
-  "pipeline": "auto-e2e-pipeline",
-  "slug": "PROJ-1234-home-block-filter",
+  "pipeline": "auto-dev-pipeline",
+  "slug": "PROJ-1234-list-filter",
   "issue": "PROJ-1234",
-  "createdAt": "2026-08-27T07:00:00.000Z",
+  "createdAt": "2026-10-12T07:00:00.000Z",
   "options": [],
   "stages": [
-    { "name": "prd-extract", "status": "done",    "artifact": "<worksDir>/PROJ-1234-home-block-filter/prd.md", "confirmedAt": "2026-08-27T07:20:00.000Z" },
-    { "name": "tc-extract",  "status": "done",    "artifact": "<worksDir>/PROJ-1234-home-block-filter/tc.md",  "confirmedAt": "2026-08-27T07:40:00.000Z" },
-    { "name": "e2e-test",    "status": "pending", "artifact": null, "confirmedAt": null }
+    { "name": "prd-extract", "status": "done", "artifact": "<worksDir>/PROJ-1234-list-filter/prd.md", "confirmedAt": "2026-10-12T07:20:00.000Z" },
+    { "name": "tc-extract", "status": "pending", "artifact": null, "confirmedAt": null }
   ],
-  "next": "e2e-test"
+  "next": "tc-extract"
 }
 ```
 
-- `status`: `pending` / `running` / `done` / `skipped`. `skipped` is a **deliberate user choice**, never a failure; record `skipReason` (e.g. `"-no-e2e option"`).
-- `options`: option strings given at launch (`[]` if none). Restored on resume; options given at resume time override.
-- A stage becomes `done` **only when its gate passes**. A sub-skill having written a file is not `done`; the user's review is the definition of completion.
-- `artifact` values are repo-relative paths as written on disk (not `<worksDir>` placeholders).
-- `slug` equals the work directory name. When derived from an input path, use the **parent directory name**, not the file name.
-- `issue`: issue key or `null`. Derived from the slug prefix; stored so resume needs no re-parsing.
+- Stage names: `prd-extract` · `tc-extract` · `tdd-plan` · `tdd-impl` · `e2e-test`. Each pipeline keeps only the ones it uses.
+- `status`: `pending` / `running` / `done` / `skipped`. `skipped` is a deliberate choice, never a failure; record `skipReason`.
+- `done` is written only when the gate passes. A written file is not completion.
+- `createdAt` and `confirmedAt` are UTC ISO strings (`new Date().toISOString()`).
+- `artifact` values are repo-relative paths as on disk (not placeholders).
+- `issue`: the issue key or `null`.
+- Imported runs add `"source": "external"` and `"sourcePath"` (the PRD path the user gave). Runs the PRD node started carry neither.
+- `selectorsRefreshed`: `true` once auto-dev-pipeline's E2E node has corrected the predicted selectors (so it is not done twice); absent before.
 - Create the directory if missing: `mkdir -p <worksDir>/<slug>`.
-
-The state file is a convenience, **not the single source of truth**. If it is missing, infer the resume point from which artifacts exist (`prd.md` → start at the TC stage, `tc.md` → start at the next stage, `<slug>-plan.md` → implementation began; also read `.superpowers/sdd/<slug>-plan/progress.md` and never re-run tasks marked complete).
