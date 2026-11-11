@@ -660,3 +660,16 @@ test('unused mocks are grouped per project and file', () => {
     assert.equal(model.tests.find((t) => t.projectName === 'chromium').status, 'passed');
     assert.equal(model.tests.find((t) => t.projectName === 'firefox').failure.kind, 'mock-unused');
 });
+
+test('collectRun: a title that already starts with the TC id is not prefixed again', () => {
+    const results = resultsOf([
+        spec('feat/btc-tc01-a.spec.js', 1, 'TC-01: first entry', result()),
+        spec('feat/btc-tc02-b.spec.js', 1, 'switch filter', result()),
+        spec('feat/btc-tc03-c.spec.js', 1, 'TC-030 other id', result())
+    ]);
+    const model = collectRun({ results, tag: 'feat', nn: '01', specFilePrefix: 'btc-' });
+    assert.deepEqual(
+        model.tests.map((t) => t.label),
+        ['TC-01: first entry', 'TC-02 switch filter', 'TC-03 TC-030 other id']
+    );
+});

@@ -5,6 +5,8 @@ description: Use when starting a feature that has no code yet and the user wants
 
 # Development pipeline router (new feature, no code yet)
 
+> Plugin root: `${CLAUDE_PLUGIN_ROOT}`. Commands in reference files name it with the CLAUDE_PLUGIN_ROOT variable, which neither a reference file nor the Bash shell expands: write this path there instead, and give it to the agents you dispatch.
+
 ```
 PRD ─G1→ TC ─G2→ PLAN ─G3a→ IMPL ─G3→ E2E ─G4
  ↑                                  └ -no-e2e: ends at G3 (E2E can be resumed later)

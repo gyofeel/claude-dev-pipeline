@@ -8,6 +8,7 @@
  *
  * All read .agents/pipeline.config.json from the cwd's repo. stdout is one JSON object; exit 0 always.
  */
+import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -101,7 +102,11 @@ const gitignore = (root, cfg) => {
     ];
     const added = lines.filter((l) => !have.has(l));
     if (added.length) writeFileSync(file, `${text}${text && !text.endsWith('\n') ? '\n' : ''}${added.join('\n')}\n`);
-    return { ok: true, path: file, added };
+    // .gitignore does not untrack files git already tracks; they keep showing as modified after every run
+    const specs = lines.map((l) => `:(glob)${l.endsWith('/') ? `${l}**` : l}`);
+    const ls = spawnSync('git', ['ls-files', '--', ...specs], { cwd: root, encoding: 'utf8' });
+    const stillTracked = ls.status === 0 ? ls.stdout.split('\n').filter(Boolean) : [];
+    return { ok: true, path: file, added, stillTracked };
 };
 
 const COMMANDS = { 'check-kit-dir': checkKitDir, 'write-playwright-config': writePlaywrightConfig, gitignore };

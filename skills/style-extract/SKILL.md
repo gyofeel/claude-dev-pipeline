@@ -5,6 +5,8 @@ description: Use when a developer wants their own coding style (code shape, pref
 
 # Style extract
 
+> Plugin root: `${CLAUDE_PLUGIN_ROOT}`. Commands in reference files name it with the CLAUDE_PLUGIN_ROOT variable, which neither a reference file nor the Bash shell expands: write this path there instead, and give it to the agents you dispatch.
+
 Builds one developer's style file from commit history plus a short confirmation. A style file holds **tendencies and context, not rules**. This skill judges nothing either: it writes "this person tends to write it this way", with evidence.
 
 `/dev-pipeline:tdd-implement` reads the file at PLAN step 4 (style context) and points every plan task at the matching section.

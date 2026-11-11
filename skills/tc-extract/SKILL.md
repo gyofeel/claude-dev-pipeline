@@ -5,6 +5,8 @@ description: Use when a PRD (or a feature description) needs to become concrete,
 
 # TC extraction
 
+> Plugin root: `${CLAUDE_PLUGIN_ROOT}`. Commands in reference files name it with the CLAUDE_PLUGIN_ROOT variable, which neither a reference file nor the Bash shell expands: write this path there instead, and give it to the agents you dispatch.
+
 Reads the PRD, checks the code, and writes `<worksDir>/<slug>/tc.md`.
 - **Format**: [references/tc-format.md](references/tc-format.md), exactly. The e2e-test batch parser, `tdd-implement` and `coverage-gate` read it.
 - **Slug**: the PRD's parent directory name. Do not ask for a save path.

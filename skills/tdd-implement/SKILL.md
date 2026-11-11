@@ -5,6 +5,8 @@ description: Use when a tc.md produced by tc-extract (new-implementation mode) i
 
 # TDD implement
 
+> Plugin root: `${CLAUDE_PLUGIN_ROOT}`. Commands in reference files name it with the CLAUDE_PLUGIN_ROOT variable, which neither a reference file nor the Bash shell expands: write this path there instead, and give it to the agents you dispatch.
+
 The superpowers plugin owns TDD discipline, the plan format, subagent execution and the review loop. This skill only adds what attaches them to the project:
 - TC → plan conversion
 - wiring the deterministic gates: `${CLAUDE_PLUGIN_ROOT}/scripts/red-gate.mjs` · `coverage-gate.mjs` · `surface-gate.mjs`

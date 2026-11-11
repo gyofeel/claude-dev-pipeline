@@ -6,6 +6,8 @@ version: 0.2.0
 
 # E2E spec generation
 
+> Plugin root: `${CLAUDE_PLUGIN_ROOT}`. Commands in reference files name it with the CLAUDE_PLUGIN_ROOT variable, which neither a reference file nor the Bash shell expands: write this path there instead, and give it to the agents you dispatch.
+
 Produce Playwright spec files that verify screen behaviour, then prove they run. The skeleton of every spec comes from a deterministic assembler, so rule violations are structurally impossible; the generated spec is executed in a real browser and, on failure, repaired by cause up to five times. The verdict is rule-based (the kit's judge), never an AI call.
 
 ## Modes
@@ -95,7 +97,7 @@ input data ──▶ spec-writer ──▶ spec-reviewer ──▶ runtime loop 
 
 ## What a generated spec looks like
 
-The assembler (`${CLAUDE_PLUGIN_ROOT}/scripts/spec-template.mjs`) stamps the whole file: kit imports on one line from `<e2e.kitDir>/index.js` (`test`, `expect`, `mockAll`, `captureFailureDiagnostics`, `captureNavigationCensus` always; `runtimeErrors` with a Runtime checkpoint; `readWatch`, `watchSelectors` with an Observe checkpoint), plus the adapter, `TC_NAME` / `START_URL` / whitelists / `SUCCESS_CRITERIA`, `test.use({ e2e: { … } })`, `test.setTimeout`, a `beforeEach` with `mockAll(page, fixtures, { isolate })` → `page.goto` → `adapter.waitForAppReady`, and one `await cp('cp-NN', …)` per checkpoint. The kit fixture owns the collector, the rule-based verdict, `verdict.json`, the screenshot, and failing the test on a FAIL verdict — specs have no `afterEach`. spec-writer fills only the interaction slot (`slotBody`).
+The assembler (`${CLAUDE_PLUGIN_ROOT}/scripts/spec-template.mjs`) stamps the whole file: kit imports on one line from `<e2e.kitDir>/index.js` (`test`, `expect`, `mockAll` always; `runtimeErrors` with a Runtime checkpoint; `readWatch`, `watchSelectors` with an Observe checkpoint; `captureFailureDiagnostics`, `captureNavigationCensus` when the body calls them), plus the adapter, `TC_NAME` / `START_URL` / whitelists / `SUCCESS_CRITERIA`, `test.use({ e2e: { … } })`, `test.setTimeout`, a `beforeEach` with `mockAll(page, fixtures, { isolate })` → `page.goto` → `adapter.waitForAppReady`, and one `await cp('cp-NN', …)` per checkpoint. The kit fixture owns the collector, the rule-based verdict, `verdict.json`, the screenshot, and failing the test on a FAIL verdict — specs have no `afterEach`. spec-writer fills only the interaction slot (`slotBody`).
 
 ## Output locations
 

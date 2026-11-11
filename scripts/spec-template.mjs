@@ -81,13 +81,19 @@ const targetLiteral = (t) =>
 
 const isMatcherCall = (c) => /^(not\.)?to\w+\(.*\)$/.test(c);
 
+// An unquoted argument (hasText(Save)) compiles to an undefined identifier and throws at run time.
+const textArg = (c, arg) => {
+    if (/^(['"`]).*\1$|^\/.+\/\w*$/s.test(arg.trim())) return arg;
+    throw new Error(`hasText needs a quoted string or a regex: ${c}`);
+};
+
 // Checkpoint condition → matcher. An unknown value appended as-is would assert nothing, so stop.
 const toMatcher = (condition, aliases) => {
     const c = String(condition).trim();
     if (aliases[c]) return aliases[c];
     // containers with several children (toast title + body) never match a whole-text equality
     const text = c.match(/^(not )?hasText\((.*)\)$/);
-    if (text) return `${text[1] ? 'not.' : ''}toContainText(${text[2]})`;
+    if (text) return `${text[1] ? 'not.' : ''}toContainText(${textArg(c, text[2])})`;
     const noClass = c.match(/^not hasClass\s+(\S+)$/);
     if (noClass) return `not.toHaveClass(/${noClass[1]}/)`;
     const re = c.match(/^matches\s+(\/.*\/\w*)$/);
@@ -100,7 +106,7 @@ const toMatcher = (condition, aliases) => {
 const toValueMatcher = (condition) => {
     const c = String(condition).trim();
     const text = c.match(/^(not )?hasText\((.*)\)$/);
-    if (text) return `${text[1] ? 'not.' : ''}toContain(${text[2]})`;
+    if (text) return `${text[1] ? 'not.' : ''}toContain(${textArg(c, text[2])})`;
     return toMatcher(c, { exists: 'toBeTruthy()' });
 };
 
@@ -321,8 +327,11 @@ export const buildSpec = (input, cfg = DEFAULTS) => {
     const kitNames = ['test', 'expect', 'mockAll'];
     if (usesRuntime) kitNames.push('runtimeErrors');
     if (watchList.length) kitNames.push('readWatch', 'watchSelectors');
-    // always imported: the body slot may call them, and the assembled file is never hand-edited
-    kitNames.push('captureFailureDiagnostics', 'captureNavigationCensus');
+    // only what the bodies call (unused imports fail project lint); an open slot may call either
+    const bodies = caseList.map((c) => [c.setupBody, c.slotBody, c.testBody].join('\n')).join('\n');
+    const slotOpen = caseList.some((c) => c.slotBody == null && c.testBody == null);
+    for (const name of ['captureFailureDiagnostics', 'captureNavigationCensus'])
+        if (slotOpen || new RegExp(`\\b${name}\\b`).test(bodies)) kitNames.push(name);
     const imports = [
         `import { ${kitNames.join(', ')} } from ${jsStr(relImport(outDir, path.posix.join(e2e.kitDir || 'e2e/kit', 'index.js')))};`,
         `import adapter from ${jsStr(relImport(outDir, e2e.adapterModule || 'e2e/e2e.adapter.js'))};`

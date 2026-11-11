@@ -5,6 +5,8 @@ description: Use when a project needs the E2E runtime kit installed or upgraded 
 
 # e2e-init — install the runtime kit and adapter
 
+> Plugin root: `${CLAUDE_PLUGIN_ROOT}`. Commands in reference files name it with the CLAUDE_PLUGIN_ROOT variable, which neither a reference file nor the Bash shell expands: write this path there instead, and give it to the agents you dispatch.
+
 Generated specs import runtime code (mocking, collection, rule-based verdict, result report, diagnostics). That code must live in the project so CI runs without the plugin. This skill copies it from the plugin and scaffolds the project adapter. Contract: [adapter-contract.md](../../references/adapter-contract.md).
 
 Arguments: `--upgrade` (replace an existing kit after showing a diff); `--from-init` (called by `dev-pipeline:init` right after it wrote the config; see Step 6).
@@ -84,6 +86,8 @@ cd "$ROOT" && node "${CLAUDE_PLUGIN_ROOT}/scripts/e2e-init.mjs" gitignore
 
 It adds `<worksDir>/**/e2e-loops.json`, `dirname(<resultsJson>)/` (live reports and the default archive) and `test-results/`. `e2e-report.md` stays tracked.
 
+`stillTracked` non-empty → those files were committed before and stay tracked, so every run shows them as modified. Show the list and ask whether to untrack them (`git rm --cached -- <files>`; the files stay on disk). Run it only on a yes.
+
 Fix the adapter's kit import path if `<adapterModule>` and `<kitDir>` are not siblings: compute the relative path from the adapter's directory to `<kitDir>/index.js` and rewrite the import line.
 
 ### Step 3a — New Playwright config (only when no `playwright.config.*` exists)
@@ -117,7 +121,7 @@ For each `MISSING_*`, print its snippet and the one-line reason:
 | `MISSING_ARCHIVE` | `['./<kitDir>/utils/archive-reporter.mjs']` as the **last** `reporter` entry, after `html` and `json` | it archives each run and writes `e2e-report.html`; it copies what the other reporters wrote, so it must come last |
 | `MISSING_TRACE` | `use: { trace: 'on' }` | the report shows one frame per checkpoint, read from the trace |
 
-An app that cannot boot without its service worker fails at boot once workers are blocked; turning the worker (or its mock layer) off in test mode is the project's call.
+An app that cannot boot without its service worker fails at boot once workers are blocked; turning the worker (or its mock layer) off in test mode is the project's call. Typical case: the app starts an MSW worker behind an env flag and waits for it before mounting. Then set that flag off for the test server, e.g. `webServer: { …, env: { VITE_ENABLE_MOCK: 'false' } }`, and let the spec fixtures answer instead.
 
 ## Step 4 — Dependencies (report only, never install)
 

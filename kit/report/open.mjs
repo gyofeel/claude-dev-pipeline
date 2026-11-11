@@ -28,10 +28,13 @@ const openInBrowser = (url) => {
 };
 
 console.log(`[e2e-report] serving ${path.relative(process.cwd(), reportDir)}`);
-const server = spawn('npx', ['playwright', 'show-report', reportDir, '--port', '0'], { stdio: ['ignore', 'pipe', 'inherit'], detached: true });
+// stderr piped, not inherited: the detached server would hold the caller's pipe (tee, CI) open forever
+const server = spawn('npx', ['playwright', 'show-report', reportDir, '--port', '0'], { stdio: ['ignore', 'pipe', 'pipe'], detached: true });
 server.on('error', () => {});
+server.stderr.on('data', (chunk) => process.stderr.write(chunk));
 const done = () => {
     server.stdout.destroy();
+    server.stderr.destroy();
     server.unref();
     process.exit(0);
 };

@@ -5,6 +5,8 @@ description: Use when a feature is already implemented and needs end-to-end veri
 
 # Verification pipeline router (existing code)
 
+> Plugin root: `${CLAUDE_PLUGIN_ROOT}`. Commands in reference files name it with the CLAUDE_PLUGIN_ROOT variable, which neither a reference file nor the Bash shell expands: write this path there instead, and give it to the agents you dispatch.
+
 ```
 PRD ─G1→ TC ─G2→ E2E ─G3
  ↑

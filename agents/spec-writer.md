@@ -41,7 +41,7 @@ Turns one assembler input JSON into one saved Playwright spec. The whole file co
 
 ## What the assembler emits (do not repeat it in the body)
 
-- one kit import line from `<e2e.kitDir>/index.js`: `test`, `expect`, `mockAll`, `captureFailureDiagnostics`, `captureNavigationCensus` (+ `runtimeErrors`, `readWatch` / `watchSelectors` when those checkpoints exist), and the adapter. The assembled file is never edited outside the `// <<< TEST_BODY >>>` slot
+- one kit import line from `<e2e.kitDir>/index.js`: `test`, `expect`, `mockAll` (+ `runtimeErrors`, `readWatch` / `watchSelectors` when those checkpoints exist, `captureFailureDiagnostics` / `captureNavigationCensus` when `setupBody` / `slotBody` calls them), and the adapter. The assembled file is never edited outside the `// <<< TEST_BODY >>>` slot
 - `TC_NAME`, `START_URL`, `CONSOLE_ERROR_WHITELIST`, `NETWORK_ERROR_WHITELIST` (merged with `e2e.networkNoiseWhitelist`), `SUCCESS_CRITERIA`
 - `test.use({ e2e: { tcName, screen, testMode, successCriteria, successCriteriaText, … } })` — the kit fixture starts the collector, judges the run, attaches `verdict.json` and a screenshot, and fails the test on a FAIL verdict. There is no `afterEach`; never add one
 - `beforeEach`: `mockAll(page, fixtures, { isolate })` → `page.goto(START_URL)` → `adapter.waitForAppReady(page, { renderSelector, readyExpr })`

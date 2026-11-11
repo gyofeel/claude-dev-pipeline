@@ -319,7 +319,7 @@ test('observe checkpoints start the sampler before the slot, wait for the window
             { type: 'Observe', selector: '.toast.--up', condition: "texts not hasText('Deleted')" }
         ]
     });
-    assert.match(out, /import \{ test, expect, mockAll, readWatch, watchSelectors, captureFailureDiagnostics, captureNavigationCensus \} from '\.\.\/\.\.\/kit\/index\.js';/);
+    assert.match(out, /import \{ test, expect, mockAll, readWatch, watchSelectors \} from '\.\.\/\.\.\/kit\/index\.js';/);
     assert.ok(out.indexOf("await watchSelectors(page, ['.toast.--up']);") < out.indexOf("cp('cp-01'"));
     assert.equal(out.match(/await readWatch\(page, 4000\);/g).length, 1);
     assert.match(out, /expect\(peak\)\.toBe\(0\);/);
@@ -383,11 +383,11 @@ test('focus rejects the old matches()/hasText() forms instead of asserting on th
     assert.match(build({ verifications: [{ type: 'Focus', condition: 'menu' }] }), /expect\(focusId\)\.toContain\('menu'\);/);
 });
 
-test('every spec imports the diagnostics helpers so the body never needs an import edit', async () => {
+test('a filled slot imports only what it calls, on one kit import line that passes spec-lint', async () => {
     const { lint } = await import('../../scripts/spec-lint.mjs');
     for (const input of [{ slotBody: '' }, { slotBody: '', navigationStrategy: 'C2' }]) {
         const out = build({ ...input, verifications: [{ type: 'DOM', selector: '.a' }] });
-        assert.match(out, /^import \{ test, expect, mockAll, captureFailureDiagnostics, captureNavigationCensus \} from '\.\.\/\.\.\/kit\/index\.js';$/m);
+        assert.match(out, /^import \{ test, expect, mockAll \} from '\.\.\/\.\.\/kit\/index\.js';$/m);
         // one import per module: consumer lint (import/no-duplicates) rejects a second kit import
         assert.equal(out.match(/from '\.\.\/\.\.\/kit\/index\.js';/g).length, 1);
         const r = lint(out, { fileName: 'tc01-landing.spec.js', cfg });
@@ -412,4 +412,24 @@ test('a case with neither a test body nor checkpoints is refused', () => {
         /B: no checkpoints/
     );
     assert.doesNotThrow(() => buildSpec({ ...base, verifications: [], testBody: 'await page.goto(START_URL);' }, cfg));
+});
+
+test('diagnostics helpers are imported only when a body calls them', () => {
+    const none = build({ slotBody: '' });
+    assert.match(none, /^import \{ test, expect, mockAll \} from/m);
+    const census = build({ slotBody: 'await captureNavigationCensus(page, testInfo, {});' });
+    assert.match(census, /^import \{ test, expect, mockAll, captureNavigationCensus \} from/m);
+    const multi = build({
+        cases: [
+            { tcName: 'A', verifications: [{ type: 'DOM', selector: '.a' }], slotBody: '' },
+            { tcName: 'B', verifications: [{ type: 'DOM', selector: '.b' }], slotBody: 'await captureFailureDiagnostics(page, testInfo);' }
+        ]
+    });
+    assert.match(multi, /^import \{ test, expect, mockAll, captureFailureDiagnostics \} from/m);
+});
+
+test('hasText with an unquoted argument stops instead of emitting an undefined identifier', () => {
+    assert.throws(() => build({ verifications: [{ type: 'DOM', selector: '.badge', condition: 'hasText(Live)' }] }), /quoted string/);
+    assert.throws(() => build({ verifications: [{ type: 'URL', path: 'pathname', condition: 'hasText(/a)' }] }), /quoted string/);
+    assert.match(build({ verifications: [{ type: 'DOM', selector: '.badge', condition: 'hasText(/Li?ve/)' }] }), /toContainText\(\/Li\?ve\/\)/);
 });

@@ -79,7 +79,8 @@ Keys marked **required** must be present. Everything else has the default shown.
   // ── E2E ───────────────────────────────────────────────────
   "e2e": {
     "specsDir": "e2e/specs",            // <specsDir>/<slug>/<specFilePrefix>tc01-<kebab>.spec.js
-    "fixturesDir": "e2e/fixtures",
+    "fixturesDir": "e2e/fixtures",      // JSON response bodies only (mockAll parses them); mocks kept as code modules
+                                        // (e.g. MSW handlers) need JSON copies here, or the spec inlines the data
     "specFilePrefix": "",               // e.g. "btc-"
     "kitDir": "e2e/kit",                // where e2e-init copies the runtime kit
     "adapterModule": "e2e/e2e.adapter.js",   // project adapter (may be absent → kit defaults)

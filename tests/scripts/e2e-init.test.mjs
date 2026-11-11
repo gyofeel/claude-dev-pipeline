@@ -156,4 +156,15 @@ test('gitignore: appends the loop record, results directory and test-results onc
     assert.deepEqual(first.added, ['works/**/e2e-loops.json', 'pw/reports/', 'test-results/']);
     assert.deepEqual(run('gitignore', root).added, []);
     assert.equal(readFileSync(path.join(root, '.gitignore'), 'utf8'), 'node_modules/\nworks/**/e2e-loops.json\npw/reports/\ntest-results/\n');
+    assert.deepEqual(first.stillTracked, []);
+});
+
+test('gitignore: lists files git already tracks under the ignored paths', () => {
+    const root = repo({ worksDir: 'works', e2e: { resultsJson: 'pw/reports/results.json' } });
+    mkdirSync(path.join(root, 'pw/reports/html'), { recursive: true });
+    writeFileSync(path.join(root, 'pw/reports/html/index.html'), 'x');
+    writeFileSync(path.join(root, 'keep.txt'), 'x');
+    spawnSync('git', ['init', '-q'], { cwd: root });
+    spawnSync('git', ['add', '.'], { cwd: root });
+    assert.deepEqual(run('gitignore', root).stillTracked, ['pw/reports/html/index.html']);
 });

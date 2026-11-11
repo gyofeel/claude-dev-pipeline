@@ -77,8 +77,8 @@ test('rule 21 checks each describe of a multi-case spec on its own', () => {
 
 test('rule 22: a fixture spec must not take test from @playwright/test', () => {
     const src = spec([BY_TYPE.DOM]).replace(
-        'import { test, expect, mockAll,',
-        "import { test } from '@playwright/test';\nimport { expect, mockAll,"
+        'import { test, expect, mockAll',
+        "import { test } from '@playwright/test';\nimport { expect, mockAll"
     );
     assert.ok(rules(src).includes(22));
 });

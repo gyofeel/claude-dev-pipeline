@@ -35,3 +35,32 @@ PRD → plan approval took about 15 minutes; IMPL about 7.
 - "Filter clicks do not refetch" went manual: no checkpoint type asserts request counts, although the report already counts requests per test.
 
 External PRD import (plan Task 21 Step 3) is checked in the euxp-admin run instead.
+
+## Real project check — 2026-11-11
+
+An existing admin front end (Vite, MSW mocks, kit 0.1.0) loaded the plugin with `--plugin-dir`. Steps: kit upgrade to 0.2.0, config `language: ko` / `locale: en`, one spec through the interview, `coverage-gate --prd --lint` on all 31 existing PRDs, and one external PRD import up to G1.
+
+| Step | Outcome |
+|---|---|
+| Kit upgrade | `check-kit-dir` ok; old analyzer files removed; Step 3b flagged service worker, archive reporter and trace |
+| Config | `config-load --check`: 0 warnings. Blocking workers stopped the app from mounting (it waits for its MSW worker), so the test server turns the mock flag off |
+| Spec | 1 spec, 3 DOM checkpoints, PASS on the first run; report opened |
+| PRD lint | 31/31 ok, 0 errors, 1 warning each (no publishing source table) |
+| Import | external PRD entered at G1, state written, resume command printed |
+
+### Defects found and fixed
+
+| Symptom | Fix |
+|---|---|
+| Every spec imported `captureFailureDiagnostics` and `captureNavigationCensus`; a static spec never calls them, so the project's ESLint (`no-unused-vars`) blocked the pre-push hook. | The assembler imports them only when `setupBody` / `slotBody` / `testBody` calls them (or the slot is left open). |
+| `hasText(Live)` compiled to `toContainText(Live)` and threw a ReferenceError at run time. | The assembler stops on an unquoted `hasText` argument; strings and regexes pass. |
+| `${CLAUDE_PLUGIN_ROOT}` is expanded in SKILL.md and agent bodies only, not in reference files or the Bash shell, so commands copied from references failed. | Every SKILL.md states the plugin root once and says to use it for commands taken from reference files and to pass it to agents. |
+| `.gitignore` additions do not untrack report files committed earlier; they showed as modified after every run. | `e2e-init gitignore` returns `stillTracked`; the skill offers `git rm --cached`. |
+| `report/open.mjs` hung when piped (`tee`, CI): the detached server inherited stderr. | stderr is piped and released with stdout. |
+| Fixtures must be JSON; nothing said so. Projects with code-module mocks had to inline data. | config-schema documents it. |
+| e2e-init Step 3b gave no example for an app that needs its worker to boot. | One example: turn the mock flag off in `webServer.env`. |
+
+### Left as is
+
+- The publishing-source warning fires on every legacy PRD: a warning, not an error, and accurate.
+- `testMode` is not shown in the report; the confusion was in the spec header, which e2e-test now explains.

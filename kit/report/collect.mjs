@@ -341,7 +341,10 @@ export function collectRun({
     if (!filtered) markUnusedMocks(tests);
     const ctx = { tcMd, readHeader, specFilePrefix };
     mapTests(tests, ctx);
-    for (const t of tests) t.label = t.tcId ? `${t.tcId} ${t.title}` : t.title;
+    // Some spec titles already start with their TC id; do not print it twice
+    for (const t of tests) {
+        t.label = t.tcId && !new RegExp(`^${t.tcId}(?!\\d)`).test(t.title) ? `${t.tcId} ${t.title}` : t.title;
+    }
 
     const ranFiles = unique(tests.map((t) => t.file));
     const total = dirSpecFiles.length || ranFiles.length;

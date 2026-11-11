@@ -5,6 +5,8 @@ description: Start here — sets up the dev-pipeline for this project, then asks
 
 # init — create or update the pipeline config
 
+> Plugin root: `${CLAUDE_PLUGIN_ROOT}`. Commands in reference files name it with the CLAUDE_PLUGIN_ROOT variable, which neither a reference file nor the Bash shell expands: write this path there instead, and give it to the agents you dispatch.
+
 Every other skill in this plugin reads `.agents/pipeline.config.json` and refuses to guess paths or commands. This skill writes that file: it auto-detects what a repository reveals, asks only about things a repository cannot reveal, validates, installs the E2E kit when the project uses Playwright, and ends with one question about what to do next. Run again with a config in place, it is the hub: it shows the settings and asks what to do next (new feature, verify, resume, change settings). The user never has to type a follow-up command.
 
 Schema and every key: [config-schema.md](../../references/config-schema.md). Read it before writing the file.

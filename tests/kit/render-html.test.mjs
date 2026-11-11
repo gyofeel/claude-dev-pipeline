@@ -127,7 +127,21 @@ test('cp 썸네일이 있으면 이미지로 넣는다', () => {
             })
         ])
     );
-    assert.match(html, /<img class="thumb" src="data:image\/jpeg;base64,AA" alt="cp-01">/);
+    assert.match(html, /<img class="thumb" src="data:image\/jpeg;base64,AA" alt="cp-01" data-caption="cp-01 · cp-01: 노출">/);
+});
+
+test('one zoom dialog and script open a clicked thumbnail', () => {
+    const thumbStep = { key: 'cp-01', title: 'cp-01: 노출', state: 'passed', durationMs: 1, thumb: 'data:image/jpeg;base64,AA' };
+    const html = renderHtml(model([testModel({ timeline: [thumbStep] }), testModel({ anchor: 't-1', timeline: [thumbStep] })]));
+    assert.equal(html.match(/<dialog class="zoom"/g)?.length, 1);
+    assert.equal(html.match(/<script>/g)?.length, 1);
+    assert.match(html, /showModal\(\)/);
+});
+
+test('no thumbnails, no zoom dialog or script', () => {
+    const html = renderHtml(model([testModel()]));
+    assert.doesNotMatch(html, /<dialog/);
+    assert.doesNotMatch(html, /<script>/);
 });
 
 test('time shows the UTC offset; body is centred', () => {

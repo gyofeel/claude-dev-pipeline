@@ -64,7 +64,9 @@ details.card>summary{cursor:pointer;list-style:none;display:flex;justify-content
 details.card>summary::-webkit-details-marker{display:none}
 .steps{list-style:none;margin:8px 0 0;padding:0;font-size:13px}
 .steps li{display:grid;grid-template-columns:80px 1fr 110px 64px 120px;gap:8px;padding:3px 0;border-bottom:1px dashed var(--line);align-items:center}
-.thumb{width:120px;border-radius:4px;border:1px solid var(--line)}
+.thumb{width:120px;border-radius:4px;border:1px solid var(--line);cursor:zoom-in}
+dialog.zoom{padding:0;border:0;outline:none;background:transparent;max-width:none;max-height:none}dialog.zoom::backdrop{background:rgba(0,0,0,.75)}
+dialog.zoom img{display:block;max-width:min(90vw,800px);max-height:85vh;border-radius:4px}dialog.zoom p{margin:8px 0 0;color:#fff;font-size:13px;text-align:center}
 .steps .k{font-family:var(--mono);font-size:12px;color:var(--muted)}.steps .t{text-align:right;font-family:var(--mono);font-size:12px;color:var(--muted)}
 .box{margin-top:10px;padding:10px 12px;background:var(--surface);border-radius:6px;font-size:13px}
 .box pre{margin:6px 0 0;white-space:pre-wrap;word-break:break-all;font-family:var(--mono);font-size:12px}
@@ -131,7 +133,7 @@ const stepList = (t, L) =>
     `<ol class="steps">${t.timeline
         .map(
             (s) =>
-                `<li><span class="k">${esc(s.key)}</span><span>${esc(s.desc ?? s.title)}${s.actual !== undefined ? ` <span class="muted">· ${L.html.actual}: ${esc(s.actual)}</span>` : ''}${s.softReason ? ` <span class="muted">· ${esc(s.softReason)}</span>` : ''}</span><span>${dot(STEP_TONE[s.state])}${esc(L.stepState[s.state])}</span><span class="t">${seconds(s.durationMs)}</span><span>${s.thumb ? `<img class="thumb" src="${esc(s.thumb)}" alt="${esc(s.key)}">` : ''}</span></li>`
+                `<li><span class="k">${esc(s.key)}</span><span>${esc(s.desc ?? s.title)}${s.actual !== undefined ? ` <span class="muted">· ${L.html.actual}: ${esc(s.actual)}</span>` : ''}${s.softReason ? ` <span class="muted">· ${esc(s.softReason)}</span>` : ''}</span><span>${dot(STEP_TONE[s.state])}${esc(L.stepState[s.state])}</span><span class="t">${seconds(s.durationMs)}</span><span>${s.thumb ? `<img class="thumb" src="${esc(s.thumb)}" alt="${esc(s.key)}" data-caption="${esc(`${s.key} · ${s.desc ?? s.title}`)}">` : ''}</span></li>`
         )
         .join('')}</ol>`;
 
@@ -226,6 +228,24 @@ ${stepList(t, L)}${failureBox(t, L)}${unusedMocksBox(t, L)}${issuesBox(t, L)}${m
 </details>`;
 };
 
+// A 120px thumbnail opens the 800px trace frame in a modal; only the src moves, so images are not embedded twice
+const ZOOM = `<dialog class="zoom" id="zoom"><img alt=""><p></p></dialog>
+<script>
+(() => {
+    const zoom = document.getElementById('zoom');
+    document.addEventListener('click', (e) => {
+        const thumb = e.target.closest('.thumb');
+        if (!thumb) return;
+        zoom.querySelector('img').src = thumb.src;
+        zoom.querySelector('p').textContent = thumb.dataset.caption || thumb.alt;
+        zoom.showModal();
+    });
+    zoom.addEventListener('click', () => zoom.close());
+})();
+</script>`;
+
+const hasThumbs = (m) => m.tests.some((t) => t.timeline.some((s) => s.thumb));
+
 /** Renders the run model as one HTML document with no external resources. */
 export function renderHtml(model) {
     const L = labels(model.locale, { platformLabel: model.platformLabel });
@@ -235,6 +255,6 @@ export function renderHtml(model) {
 <body>${header(model, L)}
 <main class="wrap">${conclusion(model, L)}${acTable(model, L)}<h2>${L.html.tests}</h2>${model.tests.map((t) => card(t, L)).join('')}</main>
 <footer class="wrap">${L.html.generated} ${esc(formatTime(model.generatedAt))} · <a href="index.html">${L.html.fullReport}</a></footer>
-</body></html>`;
+${hasThumbs(model) ? ZOOM : ''}</body></html>`;
 }
 export { CSS, esc };

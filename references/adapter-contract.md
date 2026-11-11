@@ -3,7 +3,7 @@
 Generated specs import runtime code. That code must live in the project (CI runs without the plugin), so `/dev-pipeline:e2e-init` copies the kit from `${CLAUDE_PLUGIN_ROOT}/kit/` into `<e2e.kitDir>/` and scaffolds an adapter at `<e2e.adapterModule>`. Specs import only two modules:
 
 ```js
-import { test, expect, mockAll, captureFailureDiagnostics, captureNavigationCensus } from '<rel>/kit/index.js';   // + runtimeErrors, readWatch, watchSelectors when used
+import { test, expect, mockAll } from '<rel>/kit/index.js';   // + runtimeErrors, readWatch, watchSelectors, captureFailureDiagnostics, captureNavigationCensus when used
 import adapter from '<rel>/e2e.adapter.js';                    // may re-export kit defaults
 ```
 
@@ -89,7 +89,7 @@ In TC files and assembler input, DOM checkpoint targets are written as strings: 
 
 `scripts/spec-template.mjs` produces the whole file from its input (`INPUT_SCHEMA` in the script; `--help` prints it). spec-writer supplies only `slotBody` (and optionally `setupBody`). It guarantees:
 
-1. one import line from the kit index: `test`, `expect`, `mockAll`, `captureFailureDiagnostics`, `captureNavigationCensus`, plus `runtimeErrors` (Runtime checkpoints) and `readWatch` / `watchSelectors` (Observe checkpoints); and the adapter. Nothing outside the body slot is edited by hand
+1. one import line from the kit index: `test`, `expect`, `mockAll`, `captureFailureDiagnostics` / `captureNavigationCensus` when the body calls them, plus `runtimeErrors` (Runtime checkpoints) and `readWatch` / `watchSelectors` (Observe checkpoints); and the adapter. Nothing outside the body slot is edited by hand
 2. constants `TC_NAME`, `START_URL`, `CONSOLE_ERROR_WHITELIST`, `NETWORK_ERROR_WHITELIST` (input + `e2e.networkNoiseWhitelist`), `SUCCESS_CRITERIA` (`{ id: 'cp-NN', desc }` in input order)
 3. `test.use({ e2e: { tcName, screen, testMode, successCriteria, successCriteriaText, consoleErrorWhitelist, networkErrorWhitelist } })` — `testMode` is `'fixture'` when isolated, else `'real-api'`
 4. `test.describe` with `test.setTimeout(N)` first (N ≥ 60000, default 120000)
