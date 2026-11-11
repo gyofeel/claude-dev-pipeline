@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "dev-pipeline",
-      "description": "Take a feature from scattered requirements to verified code: PRD interview, code-grounded test cases, evidence-backed TDD, and self-validating Playwright specs, pausing for human approval between stages.",
+      "description": "Take a feature from scattered requirements to verified code: a linted PRD drafted from scattered material, code-grounded test cases, evidence-backed TDD, and self-validating Playwright specs, pausing for human approval between stages.",
       "author": {
         "name": "gyofeel"
       },
